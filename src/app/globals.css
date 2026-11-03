@@ -1,26 +1,104 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * globals.css — дизайн-токены Association Web.
+ *
+ * Editorial Learning Calm: бумажный фон, графитовый текст, спокойная бирюза и
+ * коралловый акцент. Токены переключаются системной тёмной темой; анимации
+ * отключаются при prefers-reduced-motion.
+ */
+
+@theme {
+  --color-paper: #f5f7f7;
+  --color-paper-warm: #f2efe8;
+  --color-surface: #ffffff;
+  --color-ink: #24282b;
+  --color-muted: #6b7276;
+  --color-line: #d9dede;
+  --color-primary: #0f5f58;
+  --color-primary-hover: #0c4f49;
+  --color-primary-soft: #dceeea;
+  --color-primary-contrast: #ffffff;
+  --color-coral: #a63e3c;
+  --color-coral-soft: #f5dddc;
+  --color-coral-contrast: #ffffff;
+  --color-success: #26734d;
+  --color-warning: #8a5a12;
+  --color-danger: #a63e3c;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+  --radius-card: 16px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+:root {
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
+    --color-paper: #101515;
+    --color-paper-warm: #171d1c;
+    --color-surface: #182020;
+    --color-ink: #f2f5f5;
+    --color-muted: #a9b7b7;
+    --color-line: #2c3838;
+    --color-primary: #4fb3a8;
+    --color-primary-hover: #6cc8be;
+    --color-primary-soft: #1c3431;
+    --color-primary-contrast: #0b1f1d;
+    --color-coral: #ef8b87;
+    --color-coral-soft: #3a1f1e;
+    --color-coral-contrast: #1c0d0c;
+    --color-success: #6cc49a;
+    --color-warning: #e0a85c;
+    --color-danger: #f08a86;
   }
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--color-primary-soft);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html[data-reduced-motion="true"] {
+  scroll-behavior: auto;
+}
+
+html[data-reduced-motion="true"] *,
+html[data-reduced-motion="true"] *::before,
+html[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }
