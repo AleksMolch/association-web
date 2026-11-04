@@ -72,6 +72,7 @@ export function MnemonicEditor({
   } | null>(null);
   const [saving, setSaving] = useState(false);
   const previewRef = useRef<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mnemonicId = mnemonic?.id ?? null;
 
   useEffect(() => {
@@ -127,27 +128,32 @@ export function MnemonicEditor({
   function handleRemoveImage() {
     clearPreview();
     setRemoveImage(true);
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  async function applyImageChanges(id: string) {
+  async function applyImageChanges(id: string): Promise<boolean> {
     if (pendingFile) {
       try {
         const media = await putLocalImage(id, pendingFile);
         setLocalMediaMeta(media);
-      } catch (error) {
-        toast.error(messageForError(error, "Не удалось сохранить изображение"));
+        return true;
+      } catch {
+        return false;
       }
-      return;
     }
 
     if (removeImage) {
       try {
         await deleteLocalImage(id);
         deleteLocalMediaMeta(id);
-      } catch (error) {
-        toast.error(messageForError(error, "Не удалось удалить изображение"));
+        return true;
+      } catch {
+        return false;
       }
     }
+
+    return true;
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -181,6 +187,8 @@ export function MnemonicEditor({
     setSaving(true);
 
     try {
+      let saved: UserMnemonic;
+
       if (mnemonic) {
         const updated = updateUserMnemonic(mnemonic.id, {
           cueWord: parsed.data.cueWord,
@@ -192,23 +200,31 @@ export function MnemonicEditor({
           return;
         }
 
-        await applyImageChanges(updated.id);
-        toast.success("Личный вариант обновлён");
-        clearPreview();
-        onSaved?.(updated);
+        saved = updated;
       } else {
-        const created = createUserMnemonic({
+        saved = createUserMnemonic({
           wordId,
           meaningId,
           cueWord: parsed.data.cueWord,
           sceneText: parsed.data.sceneText,
         });
-
-        await applyImageChanges(created.id);
-        toast.success("Личный вариант добавлен");
-        clearPreview();
-        onSaved?.(created);
       }
+
+      const imageSaved = await applyImageChanges(saved.id);
+      clearPreview();
+
+      if (!imageSaved) {
+        toast.error(
+          "Текст сохранён, но изображение не удалось сохранить. Попробуйте ещё раз.",
+        );
+        onSaved?.(saved);
+        return;
+      }
+
+      toast.success(
+        mnemonic ? "Личный вариант обновлён" : "Личный вариант добавлен",
+      );
+      onSaved?.(saved);
     } catch (error) {
       toast.error(messageForError(error, "Не удалось сохранить вариант"));
     } finally {
@@ -262,6 +278,7 @@ export function MnemonicEditor({
         <div className="space-y-1">
           <Label htmlFor="mnemonic-image">Изображение (необязательно)</Label>
           <Input
+            ref={fileInputRef}
             id="mnemonic-image"
             type="file"
             accept="image/jpeg,image/png,image/webp"

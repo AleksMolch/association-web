@@ -19,14 +19,21 @@ export type LocalImageProps = {
   mnemonicId: string;
   alt: string;
   className?: string;
+  refreshKey?: string | number;
 };
 
 type LoadedImage = {
   mnemonicId: string;
+  refreshKey?: string | number;
   url: string | null;
 };
 
-export function LocalImage({ mnemonicId, alt, className }: LocalImageProps) {
+export function LocalImage({
+  mnemonicId,
+  alt,
+  className,
+  refreshKey,
+}: LocalImageProps) {
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
 
   useEffect(() => {
@@ -38,24 +45,27 @@ export function LocalImage({ mnemonicId, alt, className }: LocalImageProps) {
         if (!active) return;
 
         if (!blob) {
-          setLoaded({ mnemonicId, url: null });
+          setLoaded({ mnemonicId, refreshKey, url: null });
           return;
         }
 
         objectUrl = URL.createObjectURL(blob);
-        setLoaded({ mnemonicId, url: objectUrl });
+        setLoaded({ mnemonicId, refreshKey, url: objectUrl });
       })
       .catch(() => {
-        if (active) setLoaded({ mnemonicId, url: null });
+        if (active) setLoaded({ mnemonicId, refreshKey, url: null });
       });
 
     return () => {
       active = false;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [mnemonicId]);
+  }, [mnemonicId, refreshKey]);
 
-  const current = loaded?.mnemonicId === mnemonicId ? loaded : null;
+  const current =
+    loaded?.mnemonicId === mnemonicId && loaded.refreshKey === refreshKey
+      ? loaded
+      : null;
 
   if (current?.url) {
     return (

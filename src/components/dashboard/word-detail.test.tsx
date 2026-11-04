@@ -121,11 +121,23 @@ afterEach(() => {
 });
 
 describe("WordDetail personal variants", () => {
-  it("shows the «Мой» badge and selects a personal variant", () => {
+  it("shows the «Мой» badge, labels actions with the cue and selects a variant", () => {
     const guest = renderDetail({ preferred: new Map() });
 
     expect(screen.getByText("Мой")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Выбрать" }));
+    expect(
+      screen.getByRole("button", { name: "Выбрать вариант «Брат»" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Изменить вариант «Брат»" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Удалить вариант «Брат»" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Выбрать вариант «Брат»" }),
+    );
 
     expect(guest.selectMnemonic).toHaveBeenCalledWith(
       word.id,
@@ -145,7 +157,9 @@ describe("WordDetail personal variants", () => {
     ).toBe("");
     fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Изменить" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Изменить вариант «Брат»" }),
+    );
     await waitFor(() =>
       expect(
         (screen.getByLabelText("Созвучие") as HTMLInputElement).value,
@@ -153,17 +167,80 @@ describe("WordDetail personal variants", () => {
     );
   });
 
-  it("warns and falls back to the first built-in when deleting the preferred variant", () => {
+  it("refreshes an existing card image after saving an edited image", async () => {
+    let urlCount = 0;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => {
+        urlCount += 1;
+        return `blob:${urlCount}`;
+      }),
+    });
+    mocks.getLocalImage.mockResolvedValue(
+      new Blob(["image"], { type: "image/png" }),
+    );
+    mocks.putLocalImage.mockResolvedValue({
+      mnemonicId: userMnemonic.id,
+      localUri: `indexeddb://association-user-images/images/${userMnemonic.id}`,
+      mimeType: "image/webp",
+      width: 800,
+      height: 600,
+      byteSize: 1024,
+      checksum: "abc",
+      createdAt: "2026-11-04T09:05:00.000Z",
+    });
+    renderDetail({
+      updateUserMnemonic: vi.fn(() => userMnemonic),
+    });
+
+    const alt = `Личная иллюстрация: ${userMnemonic.sceneText}`;
+    const initialSrc = (await screen.findByAltText(alt)).getAttribute("src");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Изменить вариант «Брат»" }),
+    );
+    fireEvent.change(screen.getByLabelText("Изображение (необязательно)"), {
+      target: {
+        files: [new File(["new"], "new-scene.png", { type: "image/png" })],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(mocks.putLocalImage).toHaveBeenCalledTimes(1),
+    );
+    await waitFor(() =>
+      expect(screen.getByAltText(alt).getAttribute("src")).not.toBe(
+        initialSrc,
+      ),
+    );
+  });
+
+  it("warns and falls back to the first built-in when deleting the preferred variant", async () => {
     const guest = renderDetail();
 
-    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
-    expect(screen.getByText(/Удалить личный вариант\?/)).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Удалить вариант «Брат»" }),
+    );
+    expect(
+      screen.getByRole("group", { name: "Удалить личный вариант?" }),
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Да, удалить" }));
 
-    expect(guest.deleteUserMnemonic).toHaveBeenCalledWith(userMnemonic.id);
-    expect(guest.deleteLocalMediaMeta).toHaveBeenCalledWith(userMnemonic.id);
+    await waitFor(() =>
+      expect(guest.deleteUserMnemonic).toHaveBeenCalledWith(
+        userMnemonic.id,
+      ),
+    );
+    expect(guest.deleteLocalMediaMeta).not.toHaveBeenCalled();
     expect(mocks.deleteLocalImage).toHaveBeenCalledWith(userMnemonic.id);
+    expect(
+      mocks.deleteLocalImage.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      (guest.deleteUserMnemonic as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0],
+    );
     expect(guest.selectMnemonic).toHaveBeenCalledWith(
       word.id,
       firstBuiltin.id,
@@ -171,10 +248,32 @@ describe("WordDetail personal variants", () => {
     );
   });
 
+  it("keeps metadata and tombstone when the blob cannot be deleted", async () => {
+    mocks.deleteLocalImage.mockRejectedValue(
+      new Error("Хранилище недоступно"),
+    );
+    const guest = renderDetail();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Удалить вариант «Брат»" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Да, удалить" }));
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "Не удалось удалить изображение варианта",
+      ),
+    );
+    expect(guest.deleteUserMnemonic).not.toHaveBeenCalled();
+    expect(guest.selectMnemonic).not.toHaveBeenCalled();
+  });
+
   it("does not delete before confirmation", () => {
     const guest = renderDetail();
 
-    fireEvent.click(screen.getByRole("button", { name: "Удалить" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Удалить вариант «Брат»" }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Отмена" }));
 
     expect(guest.deleteUserMnemonic).not.toHaveBeenCalled();

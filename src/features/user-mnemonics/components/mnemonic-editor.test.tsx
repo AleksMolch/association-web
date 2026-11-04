@@ -205,6 +205,51 @@ describe("MnemonicEditor", () => {
     expect(props.setLocalMediaMeta).toHaveBeenCalledWith(media);
   });
 
+  it("reports partial success when the image cannot be saved", async () => {
+    mocks.putLocalImage.mockRejectedValue(
+      new Error("Не удалось записать изображение"),
+    );
+    const props = renderEditor();
+    const file = new File(["image"], "scene.png", { type: "image/png" });
+
+    fireEvent.change(screen.getByLabelText("Изображение (необязательно)"), {
+      target: { files: [file] },
+    });
+    fillValidText();
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("Текст сохранён"),
+      ),
+    );
+    expect(mocks.toast.success).not.toHaveBeenCalled();
+    expect(props.onSaved).toHaveBeenCalled();
+  });
+
+  it("resets the file input after the image is removed", async () => {
+    mocks.getLocalImage.mockResolvedValue(
+      new Blob(["image"], { type: "image/png" }),
+    );
+    renderEditor({ mnemonic: existingMnemonic });
+
+    const removeButton = await screen.findByRole("button", {
+      name: "Удалить фото",
+    });
+    const input = screen.getByLabelText(
+      "Изображение (необязательно)",
+    ) as HTMLInputElement;
+    Object.defineProperty(input, "value", {
+      configurable: true,
+      writable: true,
+      value: "C:\\fakepath\\old.png",
+    });
+
+    fireEvent.click(removeButton);
+
+    expect(input.value).toBe("");
+  });
+
   it("deletes the local image and its metadata when the image is removed", async () => {
     mocks.getLocalImage.mockResolvedValue(
       new Blob(["image"], { type: "image/png" }),

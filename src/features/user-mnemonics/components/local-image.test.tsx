@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocalImage } from "./local-image";
@@ -59,6 +59,38 @@ describe("LocalImage", () => {
 
     expect(mocks.revokeObjectURL).toHaveBeenCalledWith("blob:local-image");
     expect(mocks.getLocalImage).toHaveBeenLastCalledWith("usr-2");
+  });
+
+  it("refetches and revokes the old URL when the refresh key changes", async () => {
+    let loadCount = 0;
+    let urlCount = 0;
+    mocks.getLocalImage.mockImplementation(async () => {
+      loadCount += 1;
+      return new Blob([`image-${loadCount}`], { type: "image/png" });
+    });
+    mocks.createObjectURL.mockImplementation(() => {
+      urlCount += 1;
+      return `blob:${urlCount}`;
+    });
+
+    const { rerender } = render(
+      <LocalImage mnemonicId="usr-1" alt="Личная иллюстрация" refreshKey={0} />,
+    );
+
+    expect(
+      (await screen.findByAltText("Личная иллюстрация")).getAttribute("src"),
+    ).toBe("blob:1");
+
+    rerender(
+      <LocalImage mnemonicId="usr-1" alt="Личная иллюстрация" refreshKey={1} />,
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.getByAltText("Личная иллюстрация").getAttribute("src"),
+      ).toBe("blob:2"),
+    );
+    expect(mocks.revokeObjectURL).toHaveBeenCalledWith("blob:1");
   });
 
   it("shows a placeholder when the blob is missing", async () => {

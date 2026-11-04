@@ -49,6 +49,7 @@ export function WordDetail({ wordId }: { wordId: number }) {
   } = useGuest();
   const [editor, setEditor] = useState<EditorState>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [mediaVersion, setMediaVersion] = useState(0);
 
   if (!word) {
     return (
@@ -72,16 +73,20 @@ export function WordDetail({ wordId }: { wordId: number }) {
         a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
     );
 
-  function handleDelete(mnemonic: UserMnemonic) {
+  async function handleDelete(mnemonic: UserMnemonic) {
     const wasPreferred = activeId === mnemonic.id;
     const fallback = wasPreferred ? primaryMnemonic(activeWord) : null;
 
     setConfirmDeleteId(null);
-    deleteLocalMediaMeta(mnemonic.id);
-    deleteUserMnemonic(mnemonic.id);
-    void deleteLocalImage(mnemonic.id).catch(() => {
+
+    try {
+      await deleteLocalImage(mnemonic.id);
+    } catch {
       toast.error("Не удалось удалить изображение варианта");
-    });
+      return;
+    }
+
+    deleteUserMnemonic(mnemonic.id);
 
     if (fallback) {
       selectMnemonic(activeWord.id, fallback.id, mode);
@@ -171,7 +176,10 @@ export function WordDetail({ wordId }: { wordId: number }) {
             setLocalMediaMeta={setLocalMediaMeta}
             deleteLocalMediaMeta={deleteLocalMediaMeta}
             onCancel={() => setEditor(null)}
-            onSaved={() => setEditor(null)}
+            onSaved={() => {
+              setMediaVersion((version) => version + 1);
+              setEditor(null);
+            }}
           />
         )}
 
@@ -190,6 +198,7 @@ export function WordDetail({ wordId }: { wordId: number }) {
                       <LocalImage
                         mnemonicId={mnemonic.id}
                         alt={`Личная иллюстрация: ${mnemonic.sceneText}`}
+                        refreshKey={mediaVersion}
                       />
                     </div>
                     <div className="space-y-2 p-4">
@@ -202,6 +211,11 @@ export function WordDetail({ wordId }: { wordId: number }) {
                         <Button
                           variant={active ? "secondary" : "primary"}
                           disabled={active}
+                          aria-label={
+                            active
+                              ? `Вариант «${mnemonic.cueWord}» выбран`
+                              : `Выбрать вариант «${mnemonic.cueWord}»`
+                          }
                           onClick={() => {
                             const selected = selectMnemonic(word.id, mnemonic.id, mode);
                             if (selected) {
@@ -217,12 +231,14 @@ export function WordDetail({ wordId }: { wordId: number }) {
                         </Button>
                         <Button
                           variant="secondary"
+                          aria-label={`Изменить вариант «${mnemonic.cueWord}»`}
                           onClick={() => setEditor({ kind: "edit", mnemonic })}
                         >
                           Изменить
                         </Button>
                         <Button
                           variant="ghost"
+                          aria-label={`Удалить вариант «${mnemonic.cueWord}»`}
                           onClick={() => setConfirmDeleteId(mnemonic.id)}
                         >
                           Удалить
@@ -230,12 +246,19 @@ export function WordDetail({ wordId }: { wordId: number }) {
                       </div>
 
                       {confirmDeleteId === mnemonic.id && (
-                        <div role="alert" className="rounded-xl border border-coral/40 bg-coral-soft p-3 text-sm">
-                          <p className="text-ink">
-                            Удалить личный вариант? Изображение и текст будут удалены без возможности восстановления.
+                        <div
+                          role="group"
+                          aria-labelledby={`delete-warning-${mnemonic.id}`}
+                          className="rounded-xl border border-coral/40 bg-coral-soft p-3 text-sm"
+                        >
+                          <p id={`delete-warning-${mnemonic.id}`} className="font-semibold text-ink">
+                            Удалить личный вариант?
+                          </p>
+                          <p className="mt-1 text-muted">
+                            Изображение и текст будут удалены без возможности восстановления.
                           </p>
                           <div className="mt-2 flex flex-wrap gap-2">
-                            <Button variant="coral" size="sm" onClick={() => handleDelete(mnemonic)}>
+                            <Button variant="coral" size="sm" onClick={() => void handleDelete(mnemonic)}>
                               Да, удалить
                             </Button>
                             <Button variant="secondary" size="sm" onClick={() => setConfirmDeleteId(null)}>
