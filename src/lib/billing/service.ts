@@ -30,6 +30,14 @@ export type BillingOverview = {
   }[];
 };
 
+/**
+ * Возвращает только активную и неистёкшую подписку.
+ *
+ * Фильтрация по `status = "active"` и `ends_at > now` принадлежит этому
+ * запросу: истёкшие и отменённые подписки возвращаются как отсутствующие.
+ * Вызывающий код не повторяет эту проверку. Покрытие — интеграционные тесты
+ * БД в Task 17.
+ */
 export async function getActiveSubscription(userId: string) {
   const rows = await db
     .select()

@@ -37,6 +37,12 @@ Server  -> GET /api/billing/status -> active subscription
 - При `YOOKASSA_TRUSTED_IPS` проверяется точный IP из `x-forwarded-for`/`x-real-ip`.
 - Ответ 500 заставляет ЮKassa повторить доставку.
 
+## Проверка активной подписки
+
+- `getActiveSubscription` — единственное место с фильтром `status = active` и `ends_at > now`.
+- Истёкшие и отменённые подписки возвращаются как отсутствующие; `hasVip` и `requireVip` только делегируют результат.
+- Границы истечения и отмены покрываются интеграционными тестами БД в Task 17.
+
 ## Продление
 
 - Срок добавляется к `max(now, текущий ends_at)`.
