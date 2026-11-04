@@ -146,6 +146,89 @@ describe("mergeServerProgress", () => {
     expect(result.state.updatedAt).toBe(NOW.toISOString());
   });
 
+  it("uses updatedAt and tombstone tie-breaks for equal user-mnemonic revisions", () => {
+    const stored = mnemonic({
+      id: "usr-tie",
+      rev: 2,
+      cueWord: "Локально",
+      updatedAt: EARLIER,
+    });
+    const laterEdit = mnemonic({
+      id: "usr-tie",
+      rev: 2,
+      cueWord: "Позже",
+      updatedAt: LATER,
+    });
+
+    const edited = mergeServerProgress(
+      baseState({ userMnemonics: { [stored.id]: stored } }),
+      { userMnemonics: [{ ...laterEdit, id: `${USER_ID}:usr-tie` }] },
+      USER_ID,
+      NOW,
+    );
+
+    expect(edited.state.userMnemonics["usr-tie"]).toMatchObject({
+      cueWord: "Позже",
+      rev: 2,
+    });
+    expect(edited.pulled.userMnemonics).toBe(1);
+
+    const active = mnemonic({
+      id: "usr-tombstone-wins",
+      rev: 2,
+      updatedAt: LATER,
+    });
+    const remoteTombstone = mnemonic({
+      id: "usr-tombstone-wins",
+      rev: 2,
+      updatedAt: LATER,
+      deletedAt: LATER,
+    });
+
+    const deleted = mergeServerProgress(
+      baseState({ userMnemonics: { [active.id]: active } }),
+      {
+        userMnemonics: [
+          { ...remoteTombstone, id: `${USER_ID}:usr-tombstone-wins` },
+        ],
+      },
+      USER_ID,
+      NOW,
+    );
+
+    expect(deleted.state.userMnemonics[active.id]).toMatchObject({
+      deletedAt: LATER,
+      rev: 2,
+    });
+    expect(deleted.pulled.userMnemonics).toBe(1);
+
+    const localTombstone = mnemonic({
+      id: "usr-local-tombstone",
+      rev: 2,
+      updatedAt: LATER,
+      deletedAt: LATER,
+    });
+    const remoteActive = mnemonic({
+      id: "usr-local-tombstone",
+      rev: 2,
+      updatedAt: LATER,
+    });
+
+    const kept = mergeServerProgress(
+      baseState({ userMnemonics: { [localTombstone.id]: localTombstone } }),
+      {
+        userMnemonics: [
+          { ...remoteActive, id: `${USER_ID}:usr-local-tombstone` },
+        ],
+      },
+      USER_ID,
+      NOW,
+    );
+
+    expect(kept.state.userMnemonics[localTombstone.id]?.deletedAt).toBe(LATER);
+    expect(kept.pulled.userMnemonics).toBe(0);
+  });
+
   it("keeps selections client-local and lets local preferences win", () => {
     const state = baseState({
       selections: {
@@ -161,6 +244,7 @@ describe("mergeServerProgress", () => {
           "1": `${USER_ID}:usr-server`,
           "2": `${USER_ID}:usr-remote`,
           "3": "builtin-3",
+          "4": `${USER_ID}:usr-win`,
         },
       },
       USER_ID,
@@ -171,8 +255,53 @@ describe("mergeServerProgress", () => {
       "1": "usr-local",
       "2": "builtin-old",
       "3": "builtin-3",
+      "4": "usr-win",
     });
-    expect(result.pulled.selections).toBe(1);
+    expect(result.pulled.selections).toBe(2);
+  });
+
+  it("uses updatedAt as the tie-break for equal card revisions", () => {
+    const localCard = {
+      ...createNewCard(word.id, new Date(EARLIER)),
+      rev: 2,
+      updatedAt: EARLIER,
+    };
+    const laterServer = {
+      ...localCard,
+      id: `${USER_ID}:${localCard.id}`,
+      reps: 9,
+      updatedAt: LATER,
+    };
+    const earlierServer = {
+      ...localCard,
+      id: `${USER_ID}:${localCard.id}`,
+      reps: 7,
+      updatedAt: "2026-11-04T08:00:00.000Z",
+    };
+
+    const later = mergeServerProgress(
+      baseState({ cards: { [String(word.id)]: localCard } }),
+      { cards: [laterServer] },
+      USER_ID,
+      NOW,
+    );
+
+    expect(later.state.cards[String(word.id)]).toMatchObject({
+      id: localCard.id,
+      reps: 9,
+      rev: 2,
+    });
+    expect(later.pulled.cards).toBe(1);
+
+    const earlier = mergeServerProgress(
+      baseState({ cards: { [String(word.id)]: localCard } }),
+      { cards: [earlierServer] },
+      USER_ID,
+      NOW,
+    );
+
+    expect(earlier.state.cards[String(word.id)]).toEqual(localCard);
+    expect(earlier.pulled.cards).toBe(0);
   });
 
   it("merges cards by rev and normalizes server card ids", () => {
@@ -183,6 +312,7 @@ describe("mergeServerProgress", () => {
     const otherWord = words[1];
     const serverCard = {
       ...createNewCard(otherWord.id, new Date(EARLIER)),
+      id: `${USER_ID}:${createNewCard(otherWord.id, new Date(EARLIER)).id}`,
       rev: 4,
     };
     const lowerServerCard = {
@@ -200,7 +330,7 @@ describe("mergeServerProgress", () => {
 
     expect(result.state.cards[String(word.id)]).toEqual(localCard);
     expect(result.state.cards[String(otherWord.id)]).toMatchObject({
-      id: serverCard.id,
+      id: createNewCard(otherWord.id, new Date(EARLIER)).id,
       wordId: otherWord.id,
       rev: 4,
     });
@@ -332,7 +462,11 @@ describe("buildProgressPayload", () => {
   });
 
   it("keeps merged state serializable without Blob data", () => {
-    const local = mnemonic();
+    const local = {
+      ...mnemonic(),
+      blob: new Blob(["private-image"], { type: "image/png" }),
+      localUri: "indexeddb://association-user-images/images/usr-local",
+    } as unknown as UserMnemonic;
     const state = setLocalMediaMetaInState(
       baseState({ userMnemonics: { [local.id]: local } }),
       media(local.id),
@@ -345,9 +479,9 @@ describe("buildProgressPayload", () => {
         userMnemonics: [
           mnemonic({
             id: `${USER_ID}:usr-local`,
-            cueWord: "Братик",
-            updatedAt: LATER,
-            rev: 2,
+            cueWord: "Старее",
+            updatedAt: EARLIER,
+            rev: 1,
           }),
         ],
       },
@@ -358,6 +492,7 @@ describe("buildProgressPayload", () => {
     const parsed = JSON.parse(serialized) as GuestState;
 
     expect(serialized).not.toContain("[object Blob]");
+    expect(serialized).not.toContain("private-image");
     expect(parsed.localMediaMeta[local.id]).toEqual(media(local.id));
     expect(parsed.userMnemonics[local.id]).not.toHaveProperty("blob");
     expect(parsed.userMnemonics[local.id]).not.toHaveProperty("localUri");
@@ -386,6 +521,24 @@ describe("pullProgress", () => {
     expect(init.method).toBe("GET");
     expect(result.selections?.["1"]).toBe(`${USER_ID}:usr-local`);
     expect(result.userMnemonics?.[0]?.id).toBe(`${USER_ID}:usr-local`);
+  });
+
+  it("drops malformed card and user-mnemonic records", async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        cards: [{ id: "1:0:en-ru", wordId: word.id, meaningId: "0" }],
+        selections: {},
+        settings: defaultSettings,
+        userMnemonics: [{ ...mnemonic(), id: `${USER_ID}:usr-local`, locale: "en" }],
+      }),
+    } as Response);
+
+    const result = await pullProgress();
+
+    expect(result.cards).toEqual([]);
+    expect(result.userMnemonics).toEqual([]);
   });
 
   it("throws a typed error when the server rejects the request", async () => {

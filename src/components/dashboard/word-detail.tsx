@@ -32,7 +32,13 @@ type EditorState =
   | { kind: "edit"; mnemonic: UserMnemonic }
   | null;
 
-export function WordDetail({ wordId }: { wordId: number }) {
+export function WordDetail({
+  wordId,
+  initialEditId = null,
+}: {
+  wordId: number;
+  initialEditId?: string | null;
+}) {
   const word = getWord(wordId);
   const {
     ready,
@@ -47,9 +53,24 @@ export function WordDetail({ wordId }: { wordId: number }) {
     setLocalMediaMeta,
     deleteLocalMediaMeta,
   } = useGuest();
-  const [editor, setEditor] = useState<EditorState>(null);
+  const [manualEditor, setEditor] = useState<EditorState>(null);
+  const [initialEditClosed, setInitialEditClosed] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [mediaVersion, setMediaVersion] = useState(0);
+
+  const initialMnemonic = initialEditId && !initialEditClosed
+    ? activeUserMnemonics[initialEditId]
+    : undefined;
+  const editor: EditorState =
+    manualEditor ??
+    (initialMnemonic && initialMnemonic.wordId === wordId
+      ? { kind: "edit", mnemonic: initialMnemonic }
+      : null);
+
+  const closeEditor = () => {
+    setInitialEditClosed(true);
+    setEditor(null);
+  };
 
   if (!word) {
     return (
@@ -175,10 +196,10 @@ export function WordDetail({ wordId }: { wordId: number }) {
             updateUserMnemonic={updateUserMnemonic}
             setLocalMediaMeta={setLocalMediaMeta}
             deleteLocalMediaMeta={deleteLocalMediaMeta}
-            onCancel={() => setEditor(null)}
+            onCancel={closeEditor}
             onSaved={() => {
               setMediaVersion((version) => version + 1);
-              setEditor(null);
+              closeEditor();
             }}
           />
         )}

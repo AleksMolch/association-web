@@ -302,6 +302,19 @@ describe("WordDetail personal variants", () => {
     );
   });
 
+  it("opens the editor from an initial edit id", async () => {
+    mocks.guest.current = makeGuest();
+    render(
+      <WordDetail wordId={word.id} initialEditId={userMnemonic.id} />,
+    );
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Созвучие") as HTMLInputElement).value,
+      ).toBe(userMnemonic.cueWord),
+    );
+  });
+
   it("renders personal text as text instead of HTML", () => {
     const injected: UserMnemonic = {
       ...userMnemonic,

@@ -72,14 +72,22 @@ function isUserMnemonic(value: unknown): value is UserMnemonic {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.wordId === "number" &&
+    Number.isInteger(value.wordId) &&
+    value.wordId > 0 &&
     typeof value.meaningId === "string" &&
     typeof value.cueWord === "string" &&
     typeof value.sceneText === "string" &&
-    typeof value.locale === "string" &&
+    value.locale === "ru" &&
     typeof value.createdAt === "string" &&
+    Number.isFinite(Date.parse(value.createdAt)) &&
     typeof value.updatedAt === "string" &&
-    (value.deletedAt === null || typeof value.deletedAt === "string") &&
-    typeof value.rev === "number"
+    Number.isFinite(Date.parse(value.updatedAt)) &&
+    (value.deletedAt === null ||
+      (typeof value.deletedAt === "string" &&
+        Number.isFinite(Date.parse(value.deletedAt)))) &&
+    typeof value.rev === "number" &&
+    Number.isInteger(value.rev) &&
+    value.rev >= 1
   );
 }
 
@@ -88,13 +96,80 @@ function isCardRow(value: unknown): value is CardRow {
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.wordId === "number" &&
-    typeof value.meaningId === "string"
+    Number.isInteger(value.wordId) &&
+    value.wordId > 0 &&
+    typeof value.meaningId === "string" &&
+    value.direction === "en-ru" &&
+    typeof value.due === "string" &&
+    Number.isFinite(Date.parse(value.due)) &&
+    typeof value.stability === "number" &&
+    Number.isFinite(value.stability) &&
+    typeof value.difficulty === "number" &&
+    Number.isFinite(value.difficulty) &&
+    typeof value.scheduledDays === "number" &&
+    Number.isInteger(value.scheduledDays) &&
+    typeof value.reps === "number" &&
+    Number.isInteger(value.reps) &&
+    typeof value.lapses === "number" &&
+    Number.isInteger(value.lapses) &&
+    typeof value.learningSteps === "number" &&
+    Number.isInteger(value.learningSteps) &&
+    typeof value.state === "number" &&
+    Number.isInteger(value.state) &&
+    (value.lastReview === null ||
+      (typeof value.lastReview === "string" &&
+        Number.isFinite(Date.parse(value.lastReview)))) &&
+    typeof value.createdAt === "string" &&
+    Number.isFinite(Date.parse(value.createdAt)) &&
+    typeof value.updatedAt === "string" &&
+    Number.isFinite(Date.parse(value.updatedAt)) &&
+    typeof value.rev === "number" &&
+    Number.isInteger(value.rev) &&
+    value.rev >= 1
   );
 }
 
 export function stripServerPrefix(userId: string, id: string): string {
   const prefix = `${userId}:`;
   return id.startsWith(prefix) ? id.slice(prefix.length) : id;
+}
+
+function timestampMs(value: string): number {
+  return Date.parse(value);
+}
+
+function prefersIncomingCard(
+  stored: CardRow,
+  incoming: CardRow,
+): boolean {
+  if (incoming.rev !== stored.rev) return incoming.rev > stored.rev;
+
+  const incomingMs = timestampMs(incoming.updatedAt);
+  const storedMs = timestampMs(stored.updatedAt);
+
+  return (
+    Number.isFinite(incomingMs) &&
+    Number.isFinite(storedMs) &&
+    incomingMs > storedMs
+  );
+}
+
+function prefersIncomingUserMnemonic(
+  stored: UserMnemonic,
+  incoming: UserMnemonic,
+): boolean {
+  if (incoming.rev !== stored.rev) return incoming.rev > stored.rev;
+
+  const incomingMs = timestampMs(incoming.updatedAt);
+  const storedMs = timestampMs(stored.updatedAt);
+
+  if (!Number.isFinite(incomingMs) || !Number.isFinite(storedMs)) {
+    return false;
+  }
+
+  if (incomingMs !== storedMs) return incomingMs > storedMs;
+
+  return incoming.deletedAt !== null && stored.deletedAt === null;
 }
 
 function toClientUserMnemonic(
@@ -210,7 +285,7 @@ export function mergeServerProgress(
     const normalized = toClientUserMnemonic(userId, record);
     const existing = userMnemonics[normalized.id];
 
-    if (!existing || normalized.rev > existing.rev) {
+    if (!existing || prefersIncomingUserMnemonic(existing, normalized)) {
       userMnemonics[normalized.id] = normalized;
       pulledUserMnemonics += 1;
     }
@@ -223,7 +298,7 @@ export function mergeServerProgress(
     const key = String(card.wordId);
     const existing = cards[key];
 
-    if (!existing || card.rev > existing.rev) {
+    if (!existing || prefersIncomingCard(existing, card)) {
       cards[key] = card;
       pulledCards += 1;
     }

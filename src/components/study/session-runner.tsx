@@ -11,6 +11,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Check, Keyboard, Lightbulb, Volume2 } from "lucide-react";
 
 import { getWord, imageUrl } from "@/content";
@@ -22,7 +23,7 @@ import type { CardRow, RatingValue, SessionItem } from "@/lib/types";
 import { useGuest, type ResolvedGuestMnemonic } from "@/lib/guest-store";
 import { speakEnglish } from "@/lib/speech";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -43,6 +44,27 @@ function toVariant(resolved: ResolvedGuestMnemonic): MnemonicVariant {
   return resolved.source === "user"
     ? { source: "user", mnemonic: resolved.mnemonic }
     : { source: "builtin", mnemonic: resolved.mnemonic };
+}
+
+function AddImageLink({
+  wordId,
+  mnemonicId,
+}: {
+  wordId: number;
+  mnemonicId: string;
+}) {
+  return (
+    <Link
+      href={`/dashboard/words/${wordId}?edit=${encodeURIComponent(mnemonicId)}`}
+      className={buttonVariants({
+        variant: "secondary",
+        size: "sm",
+        className: "w-fit",
+      })}
+    >
+      Добавить картинку на этом устройстве
+    </Link>
+  );
 }
 
 function MnemonicOption({
@@ -253,6 +275,12 @@ export function SessionRunner({
                   {deckVariant.mnemonic.sceneText}
                 </div>
               </div>
+              {deckVariant.source === "user" ? (
+                <AddImageLink
+                  wordId={word.id}
+                  mnemonicId={deckVariant.mnemonic.id}
+                />
+              ) : null}
               <Button onClick={() => onNext("new")}>Понятно, дальше</Button>
             </div>
           ) : (
@@ -270,6 +298,12 @@ export function SessionRunner({
                   />
                 ))}
               </div>
+              {deckVariant?.source === "user" ? (
+                <AddImageLink
+                  wordId={word.id}
+                  mnemonicId={deckVariant.mnemonic.id}
+                />
+              ) : null}
               <div className="flex flex-wrap items-center gap-3">
                 <Button
                   disabled={!deckVariant}
@@ -361,25 +395,33 @@ export function SessionRunner({
               <p className="mt-1 text-2xl font-semibold text-ink">{translation}</p>
             </div>
             {reviewVariant ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MnemonicOption
-                  variant={reviewVariant}
-                  index={0}
-                  total={1}
-                  active
-                  onSelect={() => undefined}
-                />
-                <div className="rounded-xl border border-line p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="coral">Ключ: {reviewVariant.mnemonic.cueWord}</Badge>
-                    {reviewVariant.source === "user" ? <Badge variant="primary">Мой</Badge> : null}
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MnemonicOption
+                    variant={reviewVariant}
+                    index={0}
+                    total={1}
+                    active
+                    onSelect={() => undefined}
+                  />
+                  <div className="rounded-xl border border-line p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge variant="coral">Ключ: {reviewVariant.mnemonic.cueWord}</Badge>
+                      {reviewVariant.source === "user" ? <Badge variant="primary">Мой</Badge> : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-relaxed text-ink">{reviewVariant.mnemonic.sceneText}</p>
+                    <Separator className="my-3" />
+                    <p className="text-xs text-muted">
+                      {usedHint ? "Использована подсказка" : "Ответ открыт самостоятельно"}
+                    </p>
                   </div>
-                  <p className="mt-2 text-sm leading-relaxed text-ink">{reviewVariant.mnemonic.sceneText}</p>
-                  <Separator className="my-3" />
-                  <p className="text-xs text-muted">
-                    {usedHint ? "Использована подсказка" : "Ответ открыт самостоятельно"}
-                  </p>
                 </div>
+                {reviewVariant.source === "user" ? (
+                  <AddImageLink
+                    wordId={word.id}
+                    mnemonicId={reviewVariant.mnemonic.id}
+                  />
+                ) : null}
               </div>
             ) : null}
 

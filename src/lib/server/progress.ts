@@ -110,9 +110,23 @@ export function isNewerTimestamp(incoming: string | Date, stored: string | Date)
   return Number.isFinite(incomingMs) && Number.isFinite(storedMs) && incomingMs > storedMs;
 }
 
-/** Оставляет запись с большей ревизией; при равенстве побеждает сохранённая. */
-export function mergeByRevision<T extends { rev: number }>(stored: T, incoming: T): T {
-  return isNewerRevision(incoming.rev, stored.rev) ? incoming : stored;
+/** Оставляет запись с более поздним updatedAt при равной ревизии. */
+export function isNewerRevisionRecord<
+  T extends { rev: number; updatedAt: string },
+>(incoming: T, stored: T): boolean {
+  if (isNewerRevision(incoming.rev, stored.rev)) return true;
+  if (!Number.isInteger(incoming.rev) || incoming.rev !== stored.rev) {
+    return false;
+  }
+  return isNewerTimestamp(incoming.updatedAt, stored.updatedAt);
+}
+
+/** Ревизия, затем updatedAt; при полном равенстве побеждает сохранённая. */
+export function mergeByRevision<T extends { rev: number; updatedAt: string }>(
+  stored: T,
+  incoming: T,
+): T {
+  return isNewerRevisionRecord(incoming, stored) ? incoming : stored;
 }
 
 /** Оставляет запись с более новым updatedAt; при равенстве побеждает сохранённая. */
@@ -125,7 +139,23 @@ export function mergeByTimestamp<T extends { updatedAt: string }>(stored: T, inc
  * поэтому при большей ревизии он побеждает активную и наоборот.
  */
 export function mergeUserMnemonic(stored: UserMnemonic, incoming: UserMnemonic): UserMnemonic {
-  return mergeByRevision(stored, incoming);
+  if (isNewerRevision(incoming.rev, stored.rev)) return incoming;
+  if (incoming.rev !== stored.rev) return stored;
+
+  if (isNewerTimestamp(incoming.updatedAt, stored.updatedAt)) return incoming;
+
+  const incomingMs = timestampMs(incoming.updatedAt);
+  const storedMs = timestampMs(stored.updatedAt);
+
+  if (!Number.isFinite(incomingMs) || !Number.isFinite(storedMs)) {
+    return stored;
+  }
+
+  if (incomingMs !== storedMs) return stored;
+
+  return incoming.deletedAt !== null && stored.deletedAt === null
+    ? incoming
+    : stored;
 }
 
 export function toCardRow(row: CardSelect): CardRow {
@@ -347,7 +377,7 @@ export async function applyProgress(userId: string, input: ProgressInput): Promi
             updatedAt: values.updatedAt,
             rev: values.rev,
           },
-          setWhere: sql`${cardsTable.rev} < excluded.rev`,
+          setWhere: sql`${cardsTable.rev} < excluded.rev or (${cardsTable.rev} = excluded.rev and ${cardsTable.updatedAt} < excluded.updated_at)`,
         });
     }
 
@@ -427,7 +457,7 @@ export async function applyProgress(userId: string, input: ProgressInput): Promi
             deletedAt: values.deletedAt,
             rev: values.rev,
           },
-          setWhere: sql`${userMnemonicsTable.rev} < excluded.rev`,
+          setWhere: sql`${userMnemonicsTable.rev} < excluded.rev or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} < excluded.updated_at) or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} = excluded.updated_at and ${userMnemonicsTable.deletedAt} is null and excluded.deleted_at is not null)`,
         });
     }
   });

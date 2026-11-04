@@ -287,5 +287,12 @@ describe("SessionRunner personal mnemonics", () => {
     ).toBeNull();
     expect(mocks.getLocalImage).toHaveBeenCalledWith(mnemonic.id);
     expect(mocks.createObjectURL).not.toHaveBeenCalled();
+
+    const addImage = screen.getByRole("link", {
+      name: "Добавить картинку на этом устройстве",
+    });
+    expect(addImage.getAttribute("href")).toBe(
+      `/dashboard/words/${word.id}?edit=${mnemonic.id}`,
+    );
   });
 });

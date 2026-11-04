@@ -167,15 +167,35 @@ describe("revision last-write-wins", () => {
     expect(isNewerRevision(1, 2)).toBe(false);
   });
 
-  it("keeps stored data when the incoming revision is lower or equal", () => {
-    const stored = { rev: 4, value: "stored" };
-    expect(mergeByRevision(stored, { rev: 3, value: "stale" })).toBe(stored);
-    expect(mergeByRevision(stored, { rev: 4, value: "tie" })).toBe(stored);
+  it("keeps stored data when the incoming revision is lower or fully equal", () => {
+    const stored = { rev: 4, updatedAt: "2026-11-04T10:00:00.000Z", value: "stored" };
+    expect(
+      mergeByRevision(stored, {
+        rev: 3,
+        updatedAt: "2026-11-04T11:00:00.000Z",
+        value: "stale",
+      }),
+    ).toBe(stored);
+    expect(
+      mergeByRevision(stored, {
+        rev: 4,
+        updatedAt: "2026-11-04T10:00:00.000Z",
+        value: "tie",
+      }),
+    ).toBe(stored);
   });
 
-  it("applies the incoming record when its revision is higher", () => {
-    const incoming = { rev: 5, value: "new" };
-    expect(mergeByRevision({ rev: 4, value: "stored" }, incoming)).toBe(incoming);
+  it("applies the later updatedAt for an equal revision and a higher revision", () => {
+    const stored = { rev: 4, updatedAt: "2026-11-04T10:00:00.000Z", value: "stored" };
+    const laterEqual = {
+      rev: 4,
+      updatedAt: "2026-11-04T11:00:00.000Z",
+      value: "later",
+    };
+    const incoming = { rev: 5, updatedAt: "2026-11-04T09:00:00.000Z", value: "new" };
+
+    expect(mergeByRevision(stored, laterEqual)).toBe(laterEqual);
+    expect(mergeByRevision(stored, incoming)).toBe(incoming);
   });
 });
 
@@ -230,6 +250,41 @@ describe("user mnemonic merge with tombstones", () => {
     const incoming = mnemonic({ rev: 3, cueWord: "new" });
 
     expect(mergeUserMnemonic(stored, incoming)).toBe(incoming);
+  });
+
+  it("uses updatedAt and tombstone tie-breaks for equal revisions", () => {
+    const stored = mnemonic({
+      rev: 2,
+      cueWord: "stored",
+      updatedAt: "2026-11-04T10:00:00.000Z",
+    });
+    const laterEdit = mnemonic({
+      rev: 2,
+      cueWord: "later",
+      updatedAt: "2026-11-04T11:00:00.000Z",
+    });
+    const equalEdit = mnemonic({
+      rev: 2,
+      cueWord: "equal",
+      updatedAt: "2026-11-04T10:00:00.000Z",
+    });
+    const equalTombstone = mnemonic({
+      rev: 2,
+      cueWord: "deleted",
+      updatedAt: "2026-11-04T10:00:00.000Z",
+      deletedAt: "2026-11-04T10:00:00.000Z",
+    });
+    const localTombstone = mnemonic({
+      rev: 2,
+      cueWord: "deleted",
+      updatedAt: "2026-11-04T10:00:00.000Z",
+      deletedAt: "2026-11-04T10:00:00.000Z",
+    });
+
+    expect(mergeUserMnemonic(stored, laterEdit)).toBe(laterEdit);
+    expect(mergeUserMnemonic(stored, equalEdit)).toBe(stored);
+    expect(mergeUserMnemonic(stored, equalTombstone)).toBe(equalTombstone);
+    expect(mergeUserMnemonic(localTombstone, equalEdit)).toBe(localTombstone);
   });
 });
 
@@ -378,7 +433,9 @@ describe("applyProgress database operations", () => {
 
     expect(write.conflict.config.target).toEqual([cardsTable.userId, cardsTable.wordId]);
     expect(write.conflict.config.set).toMatchObject({ rev: 3 });
-    expect(normalizedSql(write.conflict.config.setWhere)).toBe("cards.rev < excluded.rev");
+    expect(normalizedSql(write.conflict.config.setWhere)).toBe(
+      "cards.rev < excluded.rev or (cards.rev = excluded.rev and cards.updated_at < excluded.updated_at)",
+    );
   });
 
   it("guards selections and settings with strict updatedAt last-write-wins conditions", async () => {
@@ -451,7 +508,7 @@ describe("applyProgress database operations", () => {
       rev: 4,
     });
     expect(normalizedSql(write.conflict.config.setWhere)).toBe(
-      "user_mnemonics.rev < excluded.rev",
+      "user_mnemonics.rev < excluded.rev or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at < excluded.updated_at) or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at = excluded.updated_at and user_mnemonics.deleted_at is null and excluded.deleted_at is not null)",
     );
   });
 
