@@ -10,6 +10,7 @@ import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 
+import { buildTrustedOrigins } from "@/lib/auth-origins";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendEmail } from "@/lib/email";
@@ -22,7 +23,7 @@ export const auth = betterAuth({
   baseURL: appUrl,
   secret: process.env.BETTER_AUTH_SECRET ?? "development-only-change-this-secret",
   database: drizzleAdapter(db, { provider: "pg", schema }),
-  trustedOrigins: [appUrl],
+  trustedOrigins: buildTrustedOrigins(appUrl, process.env.APP_MOBILE_ORIGIN),
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,
