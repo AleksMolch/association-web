@@ -199,6 +199,7 @@ export function WordDetail({ wordId }: { wordId: number }) {
                         mnemonicId={mnemonic.id}
                         alt={`Личная иллюстрация: ${mnemonic.sceneText}`}
                         refreshKey={mediaVersion}
+                        onAddImage={() => setEditor({ kind: "edit", mnemonic })}
                       />
                     </div>
                     <div className="space-y-2 p-4">

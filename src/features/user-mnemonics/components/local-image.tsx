@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { ImageOff } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { getLocalImage } from "../image-local-store";
@@ -20,6 +21,7 @@ export type LocalImageProps = {
   alt: string;
   className?: string;
   refreshKey?: string | number;
+  onAddImage?: () => void;
 };
 
 type LoadedImage = {
@@ -33,6 +35,7 @@ export function LocalImage({
   alt,
   className,
   refreshKey,
+  onAddImage,
 }: LocalImageProps) {
   const [loaded, setLoaded] = useState<LoadedImage | null>(null);
 
@@ -81,12 +84,26 @@ export function LocalImage({
   return (
     <div
       className={cn(
-        "flex h-full w-full flex-col items-center justify-center gap-1 text-xs text-muted",
+        "flex h-full w-full flex-col items-center justify-center gap-2 px-3 text-center text-xs text-muted",
         className,
       )}
     >
       <ImageOff className="size-5" aria-hidden="true" />
-      <span>{current ? "Нет изображения" : "Загружаем изображение…"}</span>
+      <span>
+        {current
+          ? "Изображение хранится только на исходном устройстве или не добавлено"
+          : "Загружаем изображение…"}
+      </span>
+      {current && onAddImage ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={onAddImage}
+        >
+          Добавить картинку на этом устройстве
+        </Button>
+      ) : null}
     </div>
   );
 }

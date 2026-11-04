@@ -25,6 +25,11 @@ import { getMnemonic, getWord, primaryMnemonic, words } from "@/content";
 import type { Mnemonic, Word } from "@/content/types";
 import { applyRating, createNewCard, isDue } from "@/lib/fsrs";
 import {
+  mergeServerProgress,
+  type ServerProgress,
+  type SyncMergeResult,
+} from "@/lib/sync-client";
+import {
   defaultSettings,
   type AppStats,
   type CardRow,
@@ -122,6 +127,25 @@ export function activeUserMnemonicsFromState(
   }
 
   return active;
+}
+
+export function mergeServerUserMnemonicsInState(
+  state: GuestState,
+  userId: string,
+  incoming: UserMnemonic[],
+  now: Date = new Date(),
+): { state: GuestState; applied: number } {
+  const result = mergeServerProgress(
+    state,
+    { userMnemonics: incoming },
+    userId,
+    now,
+  );
+
+  return {
+    state: result.state,
+    applied: result.pulled.userMnemonics,
+  };
 }
 
 function createLocalMnemonicId(now: Date): string {
@@ -495,6 +519,11 @@ type GuestContextValue = {
   deleteUserMnemonic: (id: string) => void;
   setLocalMediaMeta: (media: LocalMnemonicMedia) => void;
   deleteLocalMediaMeta: (mnemonicId: string) => void;
+  mergeServerUserMnemonics: (userId: string, incoming: UserMnemonic[]) => number;
+  applyServerProgress: (
+    userId: string,
+    server: ServerProgress,
+  ) => SyncMergeResult;
   resolveMnemonic: (wordId: number) => ResolvedGuestMnemonic | null;
   rateCard: (wordId: number, rating: RatingValue, usedHint: boolean) => CardRow | null;
   reset: () => void;
@@ -593,6 +622,28 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
     updateState((prev) => deleteLocalMediaMetaInState(prev, mnemonicId));
   }, []);
 
+  const mergeServerUserMnemonics = useCallback(
+    (userId: string, incoming: UserMnemonic[]): number => {
+      const result = mergeServerUserMnemonicsInState(
+        getClientSnapshot(),
+        userId,
+        incoming,
+      );
+      updateState(() => result.state);
+      return result.applied;
+    },
+    [],
+  );
+
+  const applyServerProgress = useCallback(
+    (userId: string, server: ServerProgress): SyncMergeResult => {
+      const result = mergeServerProgress(getClientSnapshot(), server, userId);
+      updateState(() => result.state);
+      return result;
+    },
+    [],
+  );
+
   const resolveMnemonic = useCallback(
     (wordId: number) => resolveMnemonicFromState(state, wordId),
     [state],
@@ -646,6 +697,8 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       deleteUserMnemonic,
       setLocalMediaMeta,
       deleteLocalMediaMeta,
+      mergeServerUserMnemonics,
+      applyServerProgress,
       resolveMnemonic,
       rateCard,
       reset,
@@ -669,6 +722,8 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       deleteUserMnemonic,
       setLocalMediaMeta,
       deleteLocalMediaMeta,
+      mergeServerUserMnemonics,
+      applyServerProgress,
       resolveMnemonic,
       rateCard,
       reset,

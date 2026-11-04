@@ -280,6 +280,28 @@ describe("WordDetail personal variants", () => {
     expect(mocks.deleteLocalImage).not.toHaveBeenCalled();
   });
 
+  it("shows the cross-device placeholder and opens the editor to add an image", async () => {
+    renderDetail();
+
+    expect(
+      await screen.findByText(
+        "Изображение хранится только на исходном устройстве или не добавлено",
+      ),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Добавить картинку на этом устройстве",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText("Созвучие") as HTMLInputElement).value,
+      ).toBe(userMnemonic.cueWord),
+    );
+  });
+
   it("renders personal text as text instead of HTML", () => {
     const injected: UserMnemonic = {
       ...userMnemonic,

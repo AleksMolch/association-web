@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { LocalImage } from "./local-image";
@@ -93,11 +93,36 @@ describe("LocalImage", () => {
     expect(mocks.revokeObjectURL).toHaveBeenCalledWith("blob:1");
   });
 
-  it("shows a placeholder when the blob is missing", async () => {
+  it("shows the cross-device placeholder when the blob is missing", async () => {
     mocks.getLocalImage.mockResolvedValue(null);
 
     render(<LocalImage mnemonicId="usr-1" alt="Личная иллюстрация" />);
 
-    expect(await screen.findByText("Нет изображения")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Изображение хранится только на исходном устройстве или не добавлено",
+      ),
+    ).toBeTruthy();
+  });
+
+  it("offers an action to add the image on this device", async () => {
+    mocks.getLocalImage.mockResolvedValue(null);
+    const onAddImage = vi.fn();
+
+    render(
+      <LocalImage
+        mnemonicId="usr-1"
+        alt="Личная иллюстрация"
+        onAddImage={onAddImage}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "Добавить картинку на этом устройстве",
+      }),
+    );
+
+    expect(onAddImage).toHaveBeenCalledTimes(1);
   });
 });

@@ -277,7 +277,11 @@ describe("SessionRunner personal mnemonics", () => {
 
     fireEvent.keyDown(window, { key: " " });
 
-    expect(await screen.findByText("Нет изображения")).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Изображение хранится только на исходном устройстве или не добавлено",
+      ),
+    ).toBeTruthy();
     expect(
       screen.queryByAltText(`Личная иллюстрация: ${USER_INPUT.sceneText}`),
     ).toBeNull();

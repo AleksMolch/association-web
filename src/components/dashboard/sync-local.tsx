@@ -1,10 +1,11 @@
 "use client";
 
 /**
- * sync-local.tsx — перенос гостевого прогресса в облако после входа.
+ * sync-local.tsx — синхронизация гостевого прогресса с облаком.
  *
- * Явное действие пользователя: локальные карточки отправляются на сервер,
- * где конфликты решаются по rev. Повторный вызов безопасен.
+ * Сначала загружает серверный снимок и сливает его по rev, затем отправляет
+ * объединённое состояние. Изображения остаются локальными: в запрос попадает
+ * только текст личных ассоциаций.
  */
 
 import { useState } from "react";
@@ -15,42 +16,79 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/auth-client";
 import { useGuest } from "@/lib/guest-store";
+import {
+  buildProgressPayload,
+  ProgressSyncError,
+  pullProgress,
+  pushProgress,
+} from "@/lib/sync-client";
+
+type SyncSummary = {
+  pushed: {
+    cards: number;
+    userMnemonics: number;
+  };
+  pulled: {
+    cards: number;
+    userMnemonics: number;
+  };
+};
 
 export function SyncLocal() {
   const { data } = useSession();
-  const { cards, preferred, settings, reviews, ready } = useGuest();
+  const {
+    cards,
+    userMnemonics,
+    ready,
+    applyServerProgress,
+  } = useGuest();
   const [pending, setPending] = useState(false);
   const [synced, setSynced] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [summary, setSummary] = useState<SyncSummary | null>(null);
 
-  const count = Object.keys(cards).length;
-  if (!ready || !data?.user || count === 0 || synced || dismissed) return null;
+  const cardCount = Object.keys(cards).length;
+  const mnemonicCount = Object.values(userMnemonics).filter(
+    (mnemonic) => mnemonic.deletedAt === null,
+  ).length;
+
+  if (!ready || !data?.user || dismissed) return null;
+
+  const hasLocalProgress = cardCount > 0 || mnemonicCount > 0;
 
   async function sync() {
     setPending(true);
     try {
-      const response = await fetch("/api/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          cards: Object.values(cards),
-          selections: Object.fromEntries(preferred),
-          settings,
-          reviews,
-        }),
-      });
-      if (response.status === 401) {
+      const userId = data?.user?.id;
+      if (!userId) {
         toast.error("Сессия истекла. Войдите заново.");
         return;
       }
-      if (!response.ok) {
-        toast.error("Не удалось перенести прогресс. Попробуйте позже.");
+
+      const server = await pullProgress();
+      const merged = applyServerProgress(userId, server);
+      const payload = buildProgressPayload(merged.state);
+
+      await pushProgress(merged.state);
+
+      setSummary({
+        pushed: {
+          cards: payload.cards.length,
+          userMnemonics: payload.userMnemonics.length,
+        },
+        pulled: {
+          cards: merged.pulled.cards,
+          userMnemonics: merged.pulled.userMnemonics,
+        },
+      });
+      setSynced(true);
+      toast.success("Прогресс синхронизирован");
+    } catch (error) {
+      if (error instanceof ProgressSyncError && error.status === 401) {
+        toast.error("Сессия истекла. Войдите заново.");
         return;
       }
-      setSynced(true);
-      toast.success("Локальный прогресс перенесён в облако");
-    } catch {
-      toast.error("Не удалось связаться с сервером");
+      toast.error("Не удалось синхронизировать прогресс. Попробуйте позже.");
     } finally {
       setPending(false);
     }
@@ -61,18 +99,35 @@ export function SyncLocal() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-lg">
           <CloudUpload className="size-5 text-primary" aria-hidden="true" />
-          Перенести прогресс в облако
+          {hasLocalProgress ? "Перенести прогресс в облако" : "Загрузить прогресс из облака"}
         </CardTitle>
         <CardDescription>
-          На этом устройстве есть {count} карточек. Сохраните их в аккаунте,
-          чтобы продолжить на другом устройстве.
+          {hasLocalProgress
+            ? `На этом устройстве: ${cardCount} карточек и ${mnemonicCount} личных ассоциаций. Текст сохранится в аккаунте, изображения останутся только на своих устройствах.`
+            : "Загрузите карточки и личные ассоциации из аккаунта. Изображения остаются только на устройствах, где их добавили."}
         </CardDescription>
       </CardHeader>
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={sync} disabled={pending}>
-          {pending ? "Переносим…" : "Перенести прогресс"}
-        </Button>
-        <Button variant="ghost" onClick={() => setDismissed(true)}>Позже</Button>
+      <div className="space-y-3">
+        {summary ? (
+          <p role="status" className="text-sm text-muted">
+            Отправлено: {summary.pushed.cards} карточек,{" "}
+            {summary.pushed.userMnemonics} личных ассоциаций. Получено:{" "}
+            {summary.pulled.cards} карточек,{" "}
+            {summary.pulled.userMnemonics} личных ассоциаций.
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={sync} disabled={pending || synced}>
+            {pending
+              ? "Синхронизируем…"
+              : synced
+                ? "Синхронизировано"
+                : "Синхронизировать прогресс"}
+          </Button>
+          {synced ? null : (
+            <Button variant="ghost" onClick={() => setDismissed(true)}>Позже</Button>
+          )}
+        </div>
       </div>
     </Card>
   );
