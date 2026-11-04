@@ -6,6 +6,7 @@
  * изменения клиентом.
  */
 
+import { expo } from "@better-auth/expo";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
@@ -83,7 +84,7 @@ export const auth = betterAuth({
     window: 60,
     max: 100,
   },
-  plugins: [nextCookies()],
+  plugins: [expo(), nextCookies()],
 });
 
 export type AuthSession = typeof auth.$Infer.Session;
