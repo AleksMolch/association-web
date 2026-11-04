@@ -5,6 +5,8 @@
  * localStorage (guest) и PostgreSQL (зарегистрированный пользователь).
  */
 
+import type { ContributionConsent } from "@/features/user-mnemonics/types";
+
 export type Direction = "en-ru";
 
 export type RatingValue = 1 | 2 | 3 | 4;
@@ -42,6 +44,10 @@ export type Settings = {
   reducedMotion: boolean;
   ttsRate: number;
   associationSwipeHintSeen: boolean;
+  contributionConsent: ContributionConsent;
+  contributionConsentVersion: string | null;
+  contributionNextPromptAt: string | null;
+  userMnemonicCreatedCount: number;
 };
 
 export const defaultSettings: Settings = {
@@ -50,6 +56,10 @@ export const defaultSettings: Settings = {
   reducedMotion: false,
   ttsRate: 0.95,
   associationSwipeHintSeen: false,
+  contributionConsent: "unset",
+  contributionConsentVersion: null,
+  contributionNextPromptAt: null,
+  userMnemonicCreatedCount: 0,
 };
 
 export type SessionItem = {

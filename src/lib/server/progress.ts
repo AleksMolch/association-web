@@ -57,6 +57,7 @@ export function toCardInsert(userId: string, row: CardRow): CardInsert {
 export function toSettings(row: SettingsSelect | undefined): Settings {
   if (!row) return { ...defaultSettings };
   return {
+    ...defaultSettings,
     dailyGoal: [5, 10, 15, 20].includes(row.dailyGoal) ? (row.dailyGoal as Settings["dailyGoal"]) : 10,
     hintsEnabled: row.hintsEnabled,
     reducedMotion: row.reducedMotion,

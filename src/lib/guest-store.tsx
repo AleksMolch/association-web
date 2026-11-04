@@ -17,8 +17,12 @@ import React, {
   useSyncExternalStore,
 } from "react";
 
-import { words } from "@/content";
-import type { Word } from "@/content/types";
+import type {
+  LocalMnemonicMedia,
+  UserMnemonic,
+} from "@/features/user-mnemonics/types";
+import { getMnemonic, getWord, primaryMnemonic, words } from "@/content";
+import type { Mnemonic, Word } from "@/content/types";
 import { applyRating, createNewCard, isDue } from "@/lib/fsrs";
 import {
   defaultSettings,
@@ -32,25 +36,246 @@ import {
 
 const STORAGE_KEY = "association_guest_v1";
 
-type GuestState = {
-  version: 1;
+export type GuestState = {
+  version: 2;
   cards: Record<string, CardRow>;
   selections: Record<string, string>;
   settings: Settings;
   reviews: ReviewRow[];
+  userMnemonics: Record<string, UserMnemonic>;
+  localMediaMeta: Record<string, LocalMnemonicMedia>;
   updatedAt: string;
 };
+
+export type CreateUserMnemonicInput = {
+  wordId: number;
+  meaningId: string;
+  cueWord: string;
+  sceneText: string;
+};
+
+export type UpdateUserMnemonicPatch = {
+  cueWord?: string;
+  sceneText?: string;
+};
+
+export type ResolvedGuestMnemonic =
+  | { source: "builtin"; mnemonic: Mnemonic }
+  | { source: "user"; mnemonic: UserMnemonic };
 
 const EMPTY_UPDATED_AT = "1970-01-01T00:00:00.000Z";
 
 const emptyState = (): GuestState => ({
-  version: 1,
+  version: 2,
   cards: {},
   selections: {},
   settings: { ...defaultSettings },
   reviews: [],
+  userMnemonics: {},
+  localMediaMeta: {},
   updatedAt: EMPTY_UPDATED_AT,
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function recordOf<T>(value: unknown): Record<string, T> {
+  return isRecord(value) ? (value as Record<string, T>) : {};
+}
+
+function arrayOf<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
+/** Приводит сохранённое состояние версии 1 или 2 к актуальной версии 2. */
+export function migrateGuestState(raw: unknown): GuestState {
+  const fallback = emptyState();
+
+  if (!isRecord(raw) || (raw.version !== 1 && raw.version !== 2)) {
+    return fallback;
+  }
+
+  return {
+    version: 2,
+    cards: recordOf<CardRow>(raw.cards),
+    selections: recordOf<string>(raw.selections),
+    settings: isRecord(raw.settings)
+      ? { ...defaultSettings, ...(raw.settings as Partial<Settings>) }
+      : { ...defaultSettings },
+    reviews: arrayOf<ReviewRow>(raw.reviews),
+    userMnemonics: recordOf<UserMnemonic>(raw.userMnemonics),
+    localMediaMeta: recordOf<LocalMnemonicMedia>(raw.localMediaMeta),
+    updatedAt:
+      typeof raw.updatedAt === "string" ? raw.updatedAt : EMPTY_UPDATED_AT,
+  };
+}
+
+function createLocalMnemonicId(now: Date): string {
+  return `usr-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** Добавляет личную ассоциацию с локальным id и первой ревизией. */
+export function createUserMnemonicInState(
+  state: GuestState,
+  input: CreateUserMnemonicInput,
+  now: Date = new Date(),
+): { state: GuestState; mnemonic: UserMnemonic } {
+  const iso = now.toISOString();
+  const mnemonic: UserMnemonic = {
+    id: createLocalMnemonicId(now),
+    wordId: input.wordId,
+    meaningId: input.meaningId,
+    cueWord: input.cueWord,
+    sceneText: input.sceneText,
+    locale: "ru",
+    createdAt: iso,
+    updatedAt: iso,
+    deletedAt: null,
+    rev: 1,
+  };
+
+  return {
+    state: {
+      ...state,
+      userMnemonics: { ...state.userMnemonics, [mnemonic.id]: mnemonic },
+      updatedAt: iso,
+    },
+    mnemonic,
+  };
+}
+
+/** Обновляет текст активной личной ассоциации и увеличивает ревизию. */
+export function updateUserMnemonicInState(
+  state: GuestState,
+  id: string,
+  patch: UpdateUserMnemonicPatch,
+  now: Date = new Date(),
+): { state: GuestState; mnemonic: UserMnemonic } | null {
+  const existing = state.userMnemonics[id];
+
+  if (!existing || existing.deletedAt !== null) return null;
+
+  const iso = now.toISOString();
+  const mnemonic: UserMnemonic = {
+    ...existing,
+    cueWord: patch.cueWord ?? existing.cueWord,
+    sceneText: patch.sceneText ?? existing.sceneText,
+    updatedAt: iso,
+    rev: existing.rev + 1,
+  };
+
+  return {
+    state: {
+      ...state,
+      userMnemonics: { ...state.userMnemonics, [id]: mnemonic },
+      updatedAt: iso,
+    },
+    mnemonic,
+  };
+}
+
+/**
+ * Помечает личную ассоциацию удалённой, сохраняя tombstone для синхронизации.
+ * Предпочтение и локальные метаданные изображения удалённого варианта
+ * очищаются, чтобы слово сразу вернулось к встроенной ассоциации.
+ */
+export function deleteUserMnemonicInState(
+  state: GuestState,
+  id: string,
+  now: Date = new Date(),
+): GuestState {
+  const existing = state.userMnemonics[id];
+
+  if (!existing || existing.deletedAt !== null) return state;
+
+  const iso = now.toISOString();
+  const selections = { ...state.selections };
+  const wordKey = String(existing.wordId);
+
+  if (selections[wordKey] === id) delete selections[wordKey];
+
+  const localMediaMeta = { ...state.localMediaMeta };
+  delete localMediaMeta[id];
+
+  return {
+    ...state,
+    selections,
+    userMnemonics: {
+      ...state.userMnemonics,
+      [id]: {
+        ...existing,
+        deletedAt: iso,
+        updatedAt: iso,
+        rev: existing.rev + 1,
+      },
+    },
+    localMediaMeta,
+    updatedAt: iso,
+  };
+}
+
+/**
+ * Выбирает ассоциацию по сохранённому предпочтению.
+ *
+ * Активная личная запись этого слова имеет приоритет; удалённые и чужие
+ * идентификаторы игнорируются, после чего используется первый встроенный
+ * вариант по `sortOrder`.
+ */
+export function resolveMnemonicFromState(
+  state: GuestState,
+  wordId: number,
+): ResolvedGuestMnemonic | null {
+  const word = getWord(wordId);
+
+  if (!word) return null;
+
+  const preferredId = state.selections[String(wordId)];
+
+  if (preferredId) {
+    const userMatch = state.userMnemonics[preferredId];
+
+    if (
+      userMatch &&
+      userMatch.wordId === wordId &&
+      userMatch.deletedAt === null
+    ) {
+      return { source: "user", mnemonic: userMatch };
+    }
+
+    const builtinMatch = getMnemonic(word, preferredId);
+
+    if (builtinMatch) {
+      return { source: "builtin", mnemonic: builtinMatch };
+    }
+  }
+
+  const fallback = primaryMnemonic(word);
+  return fallback ? { source: "builtin", mnemonic: fallback } : null;
+}
+
+/** Записывает выбор ассоциации и создаёт карточку только при первой записи. */
+export function selectMnemonicInState(
+  state: GuestState,
+  wordId: number,
+  mnemonicId: string,
+  mode: "initial" | "replace",
+  now: Date = new Date(),
+): GuestState {
+  const wordKey = String(wordId);
+  const cards = { ...state.cards };
+
+  if (mode === "initial" && !cards[wordKey]) {
+    cards[wordKey] = createNewCard(wordId, now);
+  }
+
+  return {
+    ...state,
+    cards,
+    selections: { ...state.selections, [wordKey]: mnemonicId },
+    updatedAt: now.toISOString(),
+  };
+}
 
 const emptyStats: AppStats = {
   totalWords: words.length,
@@ -74,13 +299,7 @@ function loadState(): GuestState {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyState();
-    const parsed = JSON.parse(raw) as GuestState;
-    if (!parsed || parsed.version !== 1) return emptyState();
-    return {
-      ...emptyState(),
-      ...parsed,
-      settings: { ...defaultSettings, ...(parsed.settings || {}) },
-    };
+    return migrateGuestState(JSON.parse(raw));
   } catch {
     return emptyState();
   }
@@ -196,6 +415,7 @@ type GuestContextValue = {
   settings: Settings;
   cards: Record<string, CardRow>;
   reviews: ReviewRow[];
+  userMnemonics: Record<string, UserMnemonic>;
   cardByWord: Map<number, CardRow>;
   preferred: Map<number, string>;
   newWords: Word[];
@@ -203,6 +423,13 @@ type GuestContextValue = {
   session: SessionItem[];
   updateSettings: (patch: Partial<Settings>) => void;
   selectMnemonic: (wordId: number, mnemonicId: string, mode: "initial" | "replace") => void;
+  createUserMnemonic: (input: CreateUserMnemonicInput) => UserMnemonic;
+  updateUserMnemonic: (
+    id: string,
+    patch: UpdateUserMnemonicPatch,
+  ) => UserMnemonic | null;
+  deleteUserMnemonic: (id: string) => void;
+  resolveMnemonic: (wordId: number) => ResolvedGuestMnemonic | null;
   rateCard: (wordId: number, rating: RatingValue, usedHint: boolean) => CardRow | null;
   reset: () => void;
 };
@@ -247,22 +474,43 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
 
   const selectMnemonic = useCallback(
     (wordId: number, mnemonicId: string, mode: "initial" | "replace") => {
-      const now = new Date();
-      updateState((prev) => {
-        const cards = { ...prev.cards };
-        if (mode === "initial" && !cards[String(wordId)]) {
-          const card = createNewCard(wordId, now);
-          cards[String(wordId)] = card;
-        }
-        return {
-          ...prev,
-          cards,
-          selections: { ...prev.selections, [String(wordId)]: mnemonicId },
-          updatedAt: now.toISOString(),
-        };
-      });
+      updateState((prev) =>
+        selectMnemonicInState(prev, wordId, mnemonicId, mode),
+      );
     },
     [],
+  );
+
+  const createUserMnemonic = useCallback(
+    (input: CreateUserMnemonicInput): UserMnemonic => {
+      const result = createUserMnemonicInState(getClientSnapshot(), input);
+      updateState(() => result.state);
+      return result.mnemonic;
+    },
+    [],
+  );
+
+  const updateUserMnemonic = useCallback(
+    (id: string, patch: UpdateUserMnemonicPatch): UserMnemonic | null => {
+      const result = updateUserMnemonicInState(
+        getClientSnapshot(),
+        id,
+        patch,
+      );
+      if (!result) return null;
+      updateState(() => result.state);
+      return result.mnemonic;
+    },
+    [],
+  );
+
+  const deleteUserMnemonic = useCallback((id: string) => {
+    updateState((prev) => deleteUserMnemonicInState(prev, id));
+  }, []);
+
+  const resolveMnemonic = useCallback(
+    (wordId: number) => resolveMnemonicFromState(state, wordId),
+    [state],
   );
 
   const rateCard = useCallback(
@@ -299,6 +547,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       settings: state.settings,
       cards: state.cards,
       reviews: state.reviews,
+      userMnemonics: state.userMnemonics,
       cardByWord,
       preferred,
       newWords,
@@ -306,6 +555,10 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       session,
       updateSettings,
       selectMnemonic,
+      createUserMnemonic,
+      updateUserMnemonic,
+      deleteUserMnemonic,
+      resolveMnemonic,
       rateCard,
       reset,
     }),
@@ -314,6 +567,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       state.settings,
       state.cards,
       state.reviews,
+      state.userMnemonics,
       cardByWord,
       preferred,
       newWords,
@@ -321,6 +575,10 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       session,
       updateSettings,
       selectMnemonic,
+      createUserMnemonic,
+      updateUserMnemonic,
+      deleteUserMnemonic,
+      resolveMnemonic,
       rateCard,
       reset,
     ],
