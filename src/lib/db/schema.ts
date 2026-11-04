@@ -6,6 +6,7 @@
  * статическим JSON в репозитории и не дублируется в БД.
  */
 
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -125,6 +126,30 @@ export const selections = pgTable(
   (table) => [uniqueIndex("selections_user_word_uq").on(table.userId, table.wordId)],
 );
 
+export const userMnemonics = pgTable(
+  "user_mnemonics",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    wordId: integer("word_id").notNull(),
+    meaningId: text("meaning_id").notNull(),
+    cueWord: text("cue_word").notNull(),
+    sceneText: text("scene_text").notNull(),
+    locale: text("locale").default("ru").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    rev: integer("rev").default(1).notNull(),
+  },
+  (table) => [
+    index("user_mnemonics_owner_word_idx")
+      .on(table.userId, table.wordId)
+      .where(sql`${table.deletedAt} is null`),
+  ],
+);
+
 export const reviews = pgTable(
   "reviews",
   {
@@ -137,11 +162,56 @@ export const reviews = pgTable(
       .references(() => cards.id, { onDelete: "cascade" }),
     rating: integer("rating").notNull(),
     usedHint: boolean("used_hint").default(false).notNull(),
+    exerciseType: text("exercise_type").default("review").notNull(),
+    answer: text("answer"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (table) => [
     index("reviews_user_created_idx").on(table.userId, table.createdAt),
     index("reviews_card_idx").on(table.cardId),
+  ],
+);
+
+export const contributionPreferences = pgTable("contribution_preferences", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").notNull(),
+  consentVersion: text("consent_version"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  nextPromptAt: timestamp("next_prompt_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const mnemonicContributions = pgTable(
+  "mnemonic_contributions",
+  {
+    id: text("id").primaryKey(),
+    clientContributionId: text("client_contribution_id").notNull(),
+    contributorUserId: text("contributor_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    sourceMnemonicId: text("source_mnemonic_id"),
+    wordId: integer("word_id").notNull(),
+    meaningId: text("meaning_id").notNull(),
+    cueWord: text("cue_word").notNull(),
+    sceneText: text("scene_text").notNull(),
+    locale: text("locale").notNull(),
+    consentVersion: text("consent_version").notNull(),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull(),
+    status: text("status").default("pending").notNull(),
+    normalizedHash: text("normalized_hash").notNull(),
+    moderationReason: text("moderation_reason"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("mnemonic_contributions_contributor_client_uq").on(
+      table.contributorUserId,
+      table.clientContributionId,
+    ),
+    index("mnemonic_contributions_queue_idx").on(table.status, table.createdAt),
   ],
 );
 
