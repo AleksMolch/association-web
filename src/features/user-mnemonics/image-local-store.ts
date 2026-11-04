@@ -7,7 +7,6 @@ export const MAX_IMAGE_EDGE = 1600;
 export const IMAGE_DATABASE_NAME = "association-user-images";
 export const IMAGE_OBJECT_STORE = "images";
 
-const DATABASE_VERSION = 1;
 const WEBP_QUALITIES = [0.85, 0.7, 0.55, 0.4] as const;
 const JPEG_QUALITIES = [0.86, 0.72, 0.58, 0.44] as const;
 const DOWNSCALE_STEPS = 4;
@@ -138,7 +137,7 @@ export async function processImageBlob(
   overrides: Partial<ImagePipelineDeps> = {},
 ): Promise<ProcessedImage> {
   validateImageFile(file);
-  await assertImageSignature(file);
+  await assertDecodableDimensions(file);
 
   const deps = resolvePipelineDeps(overrides);
   const bitmap = await decodeImage(file, deps);
@@ -258,40 +257,284 @@ function requireMnemonicId(mnemonicId: string): string {
   return mnemonicId;
 }
 
-async function assertImageSignature(file: Blob): Promise<void> {
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
-  const isJpeg =
-    head.length >= 3 &&
-    head[0] === 0xff &&
-    head[1] === 0xd8 &&
-    head[2] === 0xff;
-  const isPng =
-    head.length >= 8 &&
-    head[0] === 0x89 &&
-    head[1] === 0x50 &&
-    head[2] === 0x4e &&
-    head[3] === 0x47 &&
-    head[4] === 0x0d &&
-    head[5] === 0x0a &&
-    head[6] === 0x1a &&
-    head[7] === 0x0a;
-  const isWebp =
-    head.length >= 12 &&
-    head[0] === 0x52 &&
-    head[1] === 0x49 &&
-    head[2] === 0x46 &&
-    head[3] === 0x46 &&
-    head[8] === 0x57 &&
-    head[9] === 0x45 &&
-    head[10] === 0x42 &&
-    head[11] === 0x50;
+type ImageFormat = "png" | "jpeg" | "webp";
 
-  if (!isJpeg && !isPng && !isWebp) {
+type ImageDimensions = {
+  width: number;
+  height: number;
+};
+
+async function assertDecodableDimensions(file: Blob): Promise<ImageDimensions> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const format = detectImageFormat(bytes);
+
+  if (!format) {
     throw new ImageValidationError(
       "invalid_image",
       "Содержимое файла не является JPEG, PNG или WebP",
     );
   }
+
+  const dimensions = parseImageDimensions(bytes, format);
+
+  if (
+    !dimensions ||
+    dimensions.width <= 0 ||
+    dimensions.height <= 0
+  ) {
+    throw new ImageValidationError(
+      "invalid_image",
+      "Не удалось прочитать размеры изображения",
+    );
+  }
+
+  if (dimensions.width * dimensions.height > MAX_INPUT_PIXELS) {
+    throw new ImageValidationError(
+      "too_many_pixels",
+      "Изображение больше 24 мегапикселей",
+    );
+  }
+
+  return dimensions;
+}
+
+function detectImageFormat(bytes: Uint8Array): ImageFormat | null {
+  const isJpeg =
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff;
+  const isPng =
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47 &&
+    bytes[4] === 0x0d &&
+    bytes[5] === 0x0a &&
+    bytes[6] === 0x1a &&
+    bytes[7] === 0x0a;
+  const isWebp =
+    bytes.length >= 12 &&
+    readAscii(bytes, 0, 4) === "RIFF" &&
+    readAscii(bytes, 8, 4) === "WEBP";
+
+  if (isJpeg) {
+    return "jpeg";
+  }
+
+  if (isPng) {
+    return "png";
+  }
+
+  if (isWebp) {
+    return "webp";
+  }
+
+  return null;
+}
+
+function parseImageDimensions(
+  bytes: Uint8Array,
+  format: ImageFormat,
+): ImageDimensions | null {
+  if (format === "png") {
+    return parsePngDimensions(bytes);
+  }
+
+  if (format === "jpeg") {
+    return parseJpegDimensions(bytes);
+  }
+
+  return parseWebpDimensions(bytes);
+}
+
+function parsePngDimensions(bytes: Uint8Array): ImageDimensions | null {
+  if (
+    bytes.length < 24 ||
+    readUint32BE(bytes, 8) !== 13 ||
+    readAscii(bytes, 12, 4) !== "IHDR"
+  ) {
+    return null;
+  }
+
+  return {
+    width: readUint32BE(bytes, 16),
+    height: readUint32BE(bytes, 20),
+  };
+}
+
+function parseJpegDimensions(bytes: Uint8Array): ImageDimensions | null {
+  let offset = 2;
+
+  while (offset + 1 < bytes.length) {
+    if (bytes[offset] !== 0xff) {
+      return null;
+    }
+
+    let marker = bytes[offset + 1];
+    offset += 2;
+
+    while (marker === 0xff) {
+      if (offset >= bytes.length) {
+        return null;
+      }
+
+      marker = bytes[offset];
+      offset += 1;
+    }
+
+    const isStandalone =
+      marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7);
+
+    if (marker === 0xd8 || isStandalone) {
+      continue;
+    }
+
+    if (marker === 0xd9 || marker === 0xda) {
+      return null;
+    }
+
+    if (offset + 1 >= bytes.length) {
+      return null;
+    }
+
+    const segmentLength = readUint16BE(bytes, offset);
+
+    if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+      return null;
+    }
+
+    if (isStartOfFrameMarker(marker)) {
+      if (segmentLength < 7) {
+        return null;
+      }
+
+      return {
+        height: readUint16BE(bytes, offset + 3),
+        width: readUint16BE(bytes, offset + 5),
+      };
+    }
+
+    offset += segmentLength;
+  }
+
+  return null;
+}
+
+function isStartOfFrameMarker(marker: number): boolean {
+  return (
+    marker >= 0xc0 &&
+    marker <= 0xcf &&
+    marker !== 0xc4 &&
+    marker !== 0xc8 &&
+    marker !== 0xcc
+  );
+}
+
+function parseWebpDimensions(bytes: Uint8Array): ImageDimensions | null {
+  let offset = 12;
+
+  while (offset + 8 <= bytes.length) {
+    const chunkType = readAscii(bytes, offset, 4);
+    const chunkSize = readUint32LE(bytes, offset + 4);
+    const payload = offset + 8;
+
+    if (payload + chunkSize > bytes.length) {
+      return null;
+    }
+
+    if (chunkType === "VP8X") {
+      if (chunkSize < 10) {
+        return null;
+      }
+
+      return {
+        width: 1 + readUint24LE(bytes, payload + 4),
+        height: 1 + readUint24LE(bytes, payload + 7),
+      };
+    }
+
+    if (chunkType === "VP8L") {
+      if (chunkSize < 5 || bytes[payload] !== 0x2f) {
+        return null;
+      }
+
+      const b0 = bytes[payload + 1];
+      const b1 = bytes[payload + 2];
+      const b2 = bytes[payload + 3];
+      const b3 = bytes[payload + 4];
+
+      return {
+        width: 1 + (((b1 & 0x3f) << 8) | b0),
+        height:
+          1 +
+          (((b3 & 0x0f) << 10) |
+            (b2 << 2) |
+            ((b1 & 0xc0) >> 6)),
+      };
+    }
+
+    if (chunkType === "VP8 ") {
+      if (
+        chunkSize < 10 ||
+        bytes[payload + 3] !== 0x9d ||
+        bytes[payload + 4] !== 0x01 ||
+        bytes[payload + 5] !== 0x2a
+      ) {
+        return null;
+      }
+
+      return {
+        width: readUint16LE(bytes, payload + 6) & 0x3fff,
+        height: readUint16LE(bytes, payload + 8) & 0x3fff,
+      };
+    }
+
+    offset = payload + chunkSize + (chunkSize % 2);
+  }
+
+  return null;
+}
+
+function readAscii(bytes: Uint8Array, offset: number, length: number): string {
+  return String.fromCharCode(...bytes.subarray(offset, offset + length));
+}
+
+function readUint16BE(bytes: Uint8Array, offset: number): number {
+  return (bytes[offset] << 8) | bytes[offset + 1];
+}
+
+function readUint16LE(bytes: Uint8Array, offset: number): number {
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+
+function readUint24LE(bytes: Uint8Array, offset: number): number {
+  return (
+    bytes[offset] |
+    (bytes[offset + 1] << 8) |
+    (bytes[offset + 2] << 16)
+  );
+}
+
+function readUint32BE(bytes: Uint8Array, offset: number): number {
+  return (
+    ((bytes[offset] << 24) |
+      (bytes[offset + 1] << 16) |
+      (bytes[offset + 2] << 8) |
+      bytes[offset + 3]) >>>
+    0
+  );
+}
+
+function readUint32LE(bytes: Uint8Array, offset: number): number {
+  return (
+    (bytes[offset] |
+      (bytes[offset + 1] << 8) |
+      (bytes[offset + 2] << 16) |
+      (bytes[offset + 3] << 24)) >>>
+    0
+  );
 }
 
 function resolvePipelineDeps(
@@ -485,12 +728,23 @@ function getDatabase(): Promise<IDBDatabase> {
     cachedFactory = factory;
     const database = openDatabase(factory);
     cachedDatabase = database;
-    database.catch(() => {
-      if (cachedDatabase === database) {
+
+    const invalidate = () => {
+      if (cachedFactory === factory && cachedDatabase === database) {
         cachedFactory = null;
         cachedDatabase = null;
       }
-    });
+    };
+
+    database.then(
+      (connection) => {
+        connection.onversionchange = () => {
+          connection.close();
+          invalidate();
+        };
+      },
+      invalidate,
+    );
 
     return database;
   }
@@ -500,9 +754,14 @@ function getDatabase(): Promise<IDBDatabase> {
 
 function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = factory.open(IMAGE_DATABASE_NAME, DATABASE_VERSION);
+    const request = factory.open(IMAGE_DATABASE_NAME);
+    let settled = false;
 
     request.onupgradeneeded = () => {
+      if (settled) {
+        return;
+      }
+
       const database = request.result;
 
       if (!database.objectStoreNames.contains(IMAGE_OBJECT_STORE)) {
@@ -511,14 +770,34 @@ function openDatabase(factory: IDBFactory): Promise<IDBDatabase> {
     };
 
     request.onsuccess = () => {
-      const database = request.result;
-      database.onversionchange = () => database.close();
-      resolve(database);
+      if (settled) {
+        request.result.close();
+        return;
+      }
+
+      settled = true;
+      resolve(request.result);
     };
 
     request.onerror = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
       reject(
         request.error ?? new Error("Не удалось открыть хранилище изображений"),
+      );
+    };
+
+    request.onblocked = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(
+        new Error("Хранилище изображений заблокировано другой вкладкой"),
       );
     };
   });
