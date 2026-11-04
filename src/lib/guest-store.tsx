@@ -111,6 +111,19 @@ export function migrateGuestState(raw: unknown): GuestState {
   };
 }
 
+/** Возвращает только активные личные ассоциации, сохраняя raw record для sync. */
+export function activeUserMnemonicsFromState(
+  state: GuestState,
+): Record<string, UserMnemonic> {
+  const active: Record<string, UserMnemonic> = {};
+
+  for (const [id, mnemonic] of Object.entries(state.userMnemonics)) {
+    if (mnemonic.deletedAt === null) active[id] = mnemonic;
+  }
+
+  return active;
+}
+
 function createLocalMnemonicId(now: Date): string {
   return `usr-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -215,6 +228,40 @@ export function deleteUserMnemonicInState(
   };
 }
 
+/** Сохраняет только метаданные локального изображения (Blob остаётся в IndexedDB). */
+export function setLocalMediaMetaInState(
+  state: GuestState,
+  media: LocalMnemonicMedia,
+  now: Date = new Date(),
+): GuestState {
+  return {
+    ...state,
+    localMediaMeta: {
+      ...state.localMediaMeta,
+      [media.mnemonicId]: media,
+    },
+    updatedAt: now.toISOString(),
+  };
+}
+
+/** Удаляет метаданные локального изображения, если они существуют. */
+export function deleteLocalMediaMetaInState(
+  state: GuestState,
+  mnemonicId: string,
+  now: Date = new Date(),
+): GuestState {
+  if (!(mnemonicId in state.localMediaMeta)) return state;
+
+  const localMediaMeta = { ...state.localMediaMeta };
+  delete localMediaMeta[mnemonicId];
+
+  return {
+    ...state,
+    localMediaMeta,
+    updatedAt: now.toISOString(),
+  };
+}
+
 /**
  * Выбирает ассоциацию по сохранённому предпочтению.
  *
@@ -254,14 +301,30 @@ export function resolveMnemonicFromState(
   return fallback ? { source: "builtin", mnemonic: fallback } : null;
 }
 
-/** Записывает выбор ассоциации и создаёт карточку только при первой записи. */
+/**
+ * Записывает выбор ассоциации и создаёт карточку только при первой записи.
+ *
+ * Id принимается только для активной личной ассоциации этого слова или
+ * встроенного варианта; неизвестные, удалённые и чужие id не меняют состояние.
+ */
 export function selectMnemonicInState(
   state: GuestState,
   wordId: number,
   mnemonicId: string,
   mode: "initial" | "replace",
   now: Date = new Date(),
-): GuestState {
+): GuestState | null {
+  const userMatch = state.userMnemonics[mnemonicId];
+  const isUserSelection =
+    userMatch !== undefined &&
+    userMatch.wordId === wordId &&
+    userMatch.deletedAt === null;
+  const isBuiltinSelection =
+    getWord(wordId)?.mnemonics.some((mnemonic) => mnemonic.id === mnemonicId) ??
+    false;
+
+  if (!isUserSelection && !isBuiltinSelection) return null;
+
   const wordKey = String(wordId);
   const cards = { ...state.cards };
 
@@ -416,19 +479,22 @@ type GuestContextValue = {
   cards: Record<string, CardRow>;
   reviews: ReviewRow[];
   userMnemonics: Record<string, UserMnemonic>;
+  activeUserMnemonics: Record<string, UserMnemonic>;
   cardByWord: Map<number, CardRow>;
   preferred: Map<number, string>;
   newWords: Word[];
   stats: AppStats;
   session: SessionItem[];
   updateSettings: (patch: Partial<Settings>) => void;
-  selectMnemonic: (wordId: number, mnemonicId: string, mode: "initial" | "replace") => void;
+  selectMnemonic: (wordId: number, mnemonicId: string, mode: "initial" | "replace") => boolean;
   createUserMnemonic: (input: CreateUserMnemonicInput) => UserMnemonic;
   updateUserMnemonic: (
     id: string,
     patch: UpdateUserMnemonicPatch,
   ) => UserMnemonic | null;
   deleteUserMnemonic: (id: string) => void;
+  setLocalMediaMeta: (media: LocalMnemonicMedia) => void;
+  deleteLocalMediaMeta: (mnemonicId: string) => void;
   resolveMnemonic: (wordId: number) => ResolvedGuestMnemonic | null;
   rateCard: (wordId: number, rating: RatingValue, usedHint: boolean) => CardRow | null;
   reset: () => void;
@@ -456,6 +522,11 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
     [state.selections],
   );
 
+  const activeUserMnemonics = useMemo(
+    () => activeUserMnemonicsFromState(state),
+    [state],
+  );
+
   const newWords = useMemo(
     () => words.filter((word) => !cardByWord.has(word.id)),
     [cardByWord],
@@ -474,9 +545,15 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
 
   const selectMnemonic = useCallback(
     (wordId: number, mnemonicId: string, mode: "initial" | "replace") => {
-      updateState((prev) =>
-        selectMnemonicInState(prev, wordId, mnemonicId, mode),
+      const next = selectMnemonicInState(
+        getClientSnapshot(),
+        wordId,
+        mnemonicId,
+        mode,
       );
+      if (!next) return false;
+      updateState(() => next);
+      return true;
     },
     [],
   );
@@ -506,6 +583,14 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
 
   const deleteUserMnemonic = useCallback((id: string) => {
     updateState((prev) => deleteUserMnemonicInState(prev, id));
+  }, []);
+
+  const setLocalMediaMeta = useCallback((media: LocalMnemonicMedia) => {
+    updateState((prev) => setLocalMediaMetaInState(prev, media));
+  }, []);
+
+  const deleteLocalMediaMeta = useCallback((mnemonicId: string) => {
+    updateState((prev) => deleteLocalMediaMetaInState(prev, mnemonicId));
   }, []);
 
   const resolveMnemonic = useCallback(
@@ -548,6 +633,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       cards: state.cards,
       reviews: state.reviews,
       userMnemonics: state.userMnemonics,
+      activeUserMnemonics,
       cardByWord,
       preferred,
       newWords,
@@ -558,6 +644,8 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       createUserMnemonic,
       updateUserMnemonic,
       deleteUserMnemonic,
+      setLocalMediaMeta,
+      deleteLocalMediaMeta,
       resolveMnemonic,
       rateCard,
       reset,
@@ -568,6 +656,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       state.cards,
       state.reviews,
       state.userMnemonics,
+      activeUserMnemonics,
       cardByWord,
       preferred,
       newWords,
@@ -578,6 +667,8 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       createUserMnemonic,
       updateUserMnemonic,
       deleteUserMnemonic,
+      setLocalMediaMeta,
+      deleteLocalMediaMeta,
       resolveMnemonic,
       rateCard,
       reset,

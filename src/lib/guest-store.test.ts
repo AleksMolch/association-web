@@ -11,11 +11,14 @@ import { words } from "@/content";
 import type { Mnemonic } from "@/content/types";
 import { createNewCard } from "@/lib/fsrs";
 import {
+  activeUserMnemonicsFromState,
   createUserMnemonicInState,
+  deleteLocalMediaMetaInState,
   deleteUserMnemonicInState,
   migrateGuestState,
   resolveMnemonicFromState,
   selectMnemonicInState,
+  setLocalMediaMetaInState,
   updateUserMnemonicInState,
   type GuestState,
 } from "@/lib/guest-store";
@@ -72,6 +75,11 @@ function withCreatedMnemonic(): {
   mnemonic: UserMnemonic;
 } {
   return createUserMnemonicInState(migrateGuestState(null), createInput, NOW);
+}
+
+function requiredState(state: GuestState | null): GuestState {
+  expect(state).not.toBeNull();
+  return state as GuestState;
 }
 
 describe("migrateGuestState", () => {
@@ -209,6 +217,59 @@ describe("user mnemonic CRUD", () => {
   });
 });
 
+describe("activeUserMnemonicsFromState", () => {
+  it("keeps tombstones in storage but excludes them from the projection", () => {
+    const first = withCreatedMnemonic();
+    const second = createUserMnemonicInState(
+      first.state,
+      { ...createInput, cueWord: "Второй" },
+      LATER,
+    );
+    const deleted = deleteUserMnemonicInState(
+      second.state,
+      first.mnemonic.id,
+      EVEN_LATER,
+    );
+
+    const active = activeUserMnemonicsFromState(deleted);
+
+    expect(deleted.userMnemonics[first.mnemonic.id]?.deletedAt).toBe(
+      EVEN_LATER.toISOString(),
+    );
+    expect(Object.keys(active)).toEqual([second.mnemonic.id]);
+    expect(active[second.mnemonic.id]).toEqual(second.mnemonic);
+    expect(active[first.mnemonic.id]).toBeUndefined();
+  });
+});
+
+describe("local media metadata", () => {
+  const media: LocalMnemonicMedia = {
+    mnemonicId: "usr-media-1",
+    localUri: "indexeddb://association-user-images/images/usr-media-1",
+    mimeType: "image/webp",
+    width: 1200,
+    height: 900,
+    byteSize: 150_000,
+    checksum: "abc123",
+    createdAt: NOW.toISOString(),
+  };
+
+  it("stores and removes metadata without touching mnemonic records", () => {
+    const state = migrateGuestState(null);
+
+    const withMedia = setLocalMediaMetaInState(state, media, NOW);
+    const withoutMedia = deleteLocalMediaMetaInState(
+      withMedia,
+      media.mnemonicId,
+      LATER,
+    );
+
+    expect(withMedia.localMediaMeta[media.mnemonicId]).toEqual(media);
+    expect(state.localMediaMeta).toEqual({});
+    expect(withoutMedia.localMediaMeta[media.mnemonicId]).toBeUndefined();
+  });
+});
+
 describe("resolveMnemonicFromState", () => {
   it("uses the preferred user mnemonic", () => {
     const { state, mnemonic } = withCreatedMnemonic();
@@ -282,19 +343,17 @@ describe("selectMnemonicInState", () => {
   it("accepts a user id and creates the card once on the first selection", () => {
     const { state, mnemonic } = withCreatedMnemonic();
 
-    const first = selectMnemonicInState(
-      state,
-      word.id,
-      mnemonic.id,
-      "initial",
-      NOW,
+    const first = requiredState(
+      selectMnemonicInState(state, word.id, mnemonic.id, "initial", NOW),
     );
-    const second = selectMnemonicInState(
-      first,
-      word.id,
-      firstBuiltin.id,
-      "initial",
-      LATER,
+    const second = requiredState(
+      selectMnemonicInState(
+        first,
+        word.id,
+        firstBuiltin.id,
+        "initial",
+        LATER,
+      ),
     );
 
     expect(first.cards[String(word.id)]).toBeDefined();
@@ -304,12 +363,14 @@ describe("selectMnemonicInState", () => {
   });
 
   it("keeps the existing built-in selection behavior", () => {
-    const state = selectMnemonicInState(
-      migrateGuestState(null),
-      word.id,
-      firstBuiltin.id,
-      "initial",
-      NOW,
+    const state = requiredState(
+      selectMnemonicInState(
+        migrateGuestState(null),
+        word.id,
+        firstBuiltin.id,
+        "initial",
+        NOW,
+      ),
     );
 
     expect(state.cards[String(word.id)]?.wordId).toBe(word.id);
@@ -317,15 +378,73 @@ describe("selectMnemonicInState", () => {
   });
 
   it("does not create a card for a replace selection on a new word", () => {
-    const state = selectMnemonicInState(
-      migrateGuestState(null),
-      word.id,
-      firstBuiltin.id,
-      "replace",
-      NOW,
+    const state = requiredState(
+      selectMnemonicInState(
+        migrateGuestState(null),
+        word.id,
+        firstBuiltin.id,
+        "replace",
+        NOW,
+      ),
     );
 
     expect(state.cards).toEqual({});
     expect(state.selections[String(word.id)]).toBe(firstBuiltin.id);
+  });
+
+  it("rejects an unknown id without creating a card or preference", () => {
+    const state = migrateGuestState(null);
+
+    const result = selectMnemonicInState(
+      state,
+      word.id,
+      "usr-missing",
+      "initial",
+      NOW,
+    );
+
+    expect(result).toBeNull();
+    expect(state.cards).toEqual({});
+    expect(state.selections).toEqual({});
+  });
+
+  it("rejects a deleted user id without creating a card", () => {
+    const { state, mnemonic } = withCreatedMnemonic();
+    const deleted = deleteUserMnemonicInState(state, mnemonic.id, LATER);
+
+    const result = selectMnemonicInState(
+      deleted,
+      word.id,
+      mnemonic.id,
+      "initial",
+      NOW,
+    );
+
+    expect(result).toBeNull();
+    expect(deleted.cards).toEqual({});
+  });
+
+  it("rejects a user id that belongs to another word", () => {
+    const otherWord = words.find((candidate) => candidate.id !== word.id);
+    expect(otherWord).toBeDefined();
+    if (!otherWord) return;
+
+    const created = createUserMnemonicInState(
+      migrateGuestState(null),
+      { ...createInput, wordId: otherWord.id },
+      NOW,
+    );
+
+    const result = selectMnemonicInState(
+      created.state,
+      word.id,
+      created.mnemonic.id,
+      "initial",
+      NOW,
+    );
+
+    expect(result).toBeNull();
+    expect(created.state.cards).toEqual({});
+    expect(created.state.selections).toEqual({});
   });
 });
