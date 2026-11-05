@@ -26,8 +26,7 @@ import {
 } from "@/features/contributions/consent-preferences";
 import {
   clearPendingOutbox,
-  flushOutbox,
-  resetBlockedOutbox,
+  resumeOutboxAfterGrant,
   submitWithdrawal,
 } from "@/features/contributions/outbox";
 import {
@@ -118,8 +117,7 @@ export default function DashboardSettingsPage() {
           applyPreference(preference);
 
           if (preference.status === "granted") {
-            resetBlockedOutbox({ userId: sessionUserId });
-            void flushOutbox({
+            void resumeOutboxAfterGrant({
               userId: sessionUserId,
               consentStatus: "granted",
             });
@@ -143,6 +141,13 @@ export default function DashboardSettingsPage() {
               return;
             }
             applyPreference(saved);
+
+            if (saved.status === "granted") {
+              void resumeOutboxAfterGrant({
+                userId: sessionUserId,
+                consentStatus: "granted",
+              });
+            }
           })
           .catch(() => {
             if (!active) return;
@@ -202,8 +207,7 @@ export default function DashboardSettingsPage() {
         });
 
         if (saved.status === "granted") {
-          resetBlockedOutbox({ userId: sessionUserId });
-          void flushOutbox({
+          void resumeOutboxAfterGrant({
             userId: sessionUserId,
             consentStatus: "granted",
           });

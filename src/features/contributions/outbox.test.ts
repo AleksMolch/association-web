@@ -19,6 +19,7 @@ import {
   flushOutbox,
   outboxStorageKey,
   resetBlockedOutbox,
+  resumeOutboxAfterGrant,
   submitWithdrawal,
   type OutboxStorage,
 } from "./outbox";
@@ -467,5 +468,38 @@ describe("submitWithdrawal", () => {
     clearPendingOutbox(options());
 
     expect(queue(storage)).toHaveLength(0);
+  });
+});
+
+describe("resumeOutboxAfterGrant", () => {
+  it("сбрасывает blocked и отправляет после успешного согласия", async () => {
+    enqueueContribution(mnemonic(), options());
+    const entries = queue(storage);
+    entries[0].status = "blocked";
+    entries[0].attemptCount = 2;
+    storage.setItem(outboxStorageKey("user-a"), JSON.stringify(entries));
+    const fetchMock = vi.fn<
+      (url: string, init?: RequestInit) => Promise<Response>
+    >(async (_url, init) => acceptedFor(init));
+
+    await resumeOutboxAfterGrant(options({ fetch: fetchMock }));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(queue(storage)).toHaveLength(0);
+  });
+
+  it("не сбрасывает и не отправляет без granted", async () => {
+    enqueueContribution(mnemonic(), options());
+    const entries = queue(storage);
+    entries[0].status = "blocked";
+    storage.setItem(outboxStorageKey("user-a"), JSON.stringify(entries));
+    const fetchMock = vi.fn();
+
+    await resumeOutboxAfterGrant(
+      options({ fetch: fetchMock, consentStatus: "withdrawn" }),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queue(storage)[0].status).toBe("blocked");
   });
 });

@@ -33,8 +33,7 @@ import { ConsentDialog } from "@/features/contributions/components/consent-dialo
 import {
   clearPendingOutbox,
   enqueueContribution,
-  flushOutbox,
-  resetBlockedOutbox,
+  resumeOutboxAfterGrant,
 } from "@/features/contributions/outbox";
 import {
   getContributionPreference,
@@ -163,8 +162,7 @@ export function WordDetail({
           });
 
           if (preference.status === "granted") {
-            resetBlockedOutbox({ userId: sessionUserId });
-            void flushOutbox({
+            void resumeOutboxAfterGrant({
               userId: sessionUserId,
               consentStatus: "granted",
             });
@@ -261,8 +259,7 @@ export function WordDetail({
         });
 
         if (saved.status === "granted" && sessionUserId) {
-          resetBlockedOutbox({ userId: sessionUserId });
-          void flushOutbox({
+          void resumeOutboxAfterGrant({
             userId: sessionUserId,
             consentStatus: "granted",
           });

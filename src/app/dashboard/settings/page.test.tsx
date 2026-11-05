@@ -15,6 +15,14 @@ import { defaultSettings } from "@/lib/types";
 
 import DashboardSettingsPage from "./page";
 
+const outboxMocks = vi.hoisted(() => ({
+  clearPendingOutbox: vi.fn(),
+  submitWithdrawal: vi.fn(),
+  resumeOutboxAfterGrant: vi.fn(),
+}));
+
+vi.mock("@/features/contributions/outbox", () => outboxMocks);
+
 const mocks = vi.hoisted(() => ({
   guest: { current: {} as Record<string, unknown> },
   session: {
@@ -292,6 +300,49 @@ describe("Настройки → Конфиденциальность", () => {
     );
     expect(mocks.updateSettings).toHaveBeenCalledWith(
       expect.objectContaining({ contributionConsent: "declined" }),
+    );
+  });
+
+  it("после push_local с granted сбрасывает blocked и запускает отправку", async () => {
+    const fetchMock = installFetch(async (_url, init) => {
+      if (init?.method === "PUT") {
+        return jsonResponse(
+          serverPreference({
+            status: "granted",
+            consentVersion: CONSENT_VERSION,
+          }),
+        );
+      }
+      return jsonResponse(
+        serverPreference({
+          status: "withdrawn",
+          consentVersion: CONSENT_VERSION,
+        }),
+      );
+    });
+    mount(true, {
+      ...defaultSettings,
+      contributionConsent: "granted",
+      contributionConsentVersion: CONSENT_VERSION,
+    });
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/privacy/contribution-preference",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            status: "granted",
+            consentVersion: CONSENT_VERSION,
+          }),
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(outboxMocks.resumeOutboxAfterGrant).toHaveBeenCalledWith({
+        userId: "user-a",
+        consentStatus: "granted",
+      }),
     );
   });
 

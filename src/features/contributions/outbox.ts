@@ -635,6 +635,16 @@ export async function submitWithdrawal(
   }
 }
 
+/** Сбрасывает blocked и отправляет очередь после успешного согласия. */
+export async function resumeOutboxAfterGrant(
+  options: OutboxOptions = {},
+): Promise<void> {
+  if (!options.userId || options.consentStatus !== "granted") return;
+
+  resetBlockedOutbox(options);
+  await flushOutbox(options);
+}
+
 /** Синоним `submitWithdrawal` из интерфейса задачи. */
 export function withdrawContributions(
   sourceMnemonicIds: string[],
