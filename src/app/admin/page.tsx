@@ -95,6 +95,7 @@ function AdminView({ data }: { data: AdminData }) {
           <h1 className="font-serif text-3xl font-semibold text-ink">Админка</h1>
         </div>
         <div className="flex gap-2">
+          <Link href="/admin/contributions" className={buttonVariants({ size: "sm" })}>Модерация вкладов</Link>
           <Link href="/dashboard" className={buttonVariants({ variant: "secondary", size: "sm" })}>В кабинет</Link>
           <Badge variant="outline">read-only</Badge>
         </div>

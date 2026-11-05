@@ -8,7 +8,7 @@
  */
 
 import { createHmac } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { count, desc, eq, inArray } from "drizzle-orm";
 
 import { getWord } from "@/content";
 import { db } from "@/lib/db";
@@ -38,10 +38,15 @@ export const MODERATION_ACTIONS = [
 
 export type ModerationAction = (typeof MODERATION_ACTIONS)[number];
 
+export const MODERATION_QUEUE_DEFAULT_LIMIT = 50;
+export const MODERATION_QUEUE_MAX_LIMIT = 200;
+
+const SENSITIVE_PREFIX = /^sensitive_content:([a-z,]+)/;
+const SENSITIVE_FLAG_NAMES = ["email", "phone", "url"] as const;
+
 export type ModerationQueueItem = {
   id: string;
   wordId: number;
-  meaningId: string;
   word: string | null;
   translation: string | null;
   pronunciation: string | null;
@@ -57,9 +62,15 @@ export type ModerationQueueItem = {
   contributorId: string | null;
   duplicateCount: number;
   duplicateScore: number;
-  reviewedBy: string | null;
   reviewedAt: string | null;
   createdAt: string;
+};
+
+export type ModerationQueuePage = {
+  items: ModerationQueueItem[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type ModerationDecision = {
@@ -77,6 +88,11 @@ export type ModerationDecisionResult = {
   reviewedAt: string | null;
   idempotent: boolean;
 };
+
+export type ModerationDecisionOutcome =
+  | { outcome: "ok"; result: ModerationDecisionResult }
+  | { outcome: "not_found" }
+  | { outcome: "withdrawn" };
 
 const ACTION_STATUS: Record<ModerationAction, ModerationStatus> = {
   approve: "approved",
@@ -113,6 +129,22 @@ export function pseudonymousContributorId(
   return `contributor_${digest}`;
 }
 
+type SensitiveFlagName = (typeof SENSITIVE_FLAG_NAMES)[number];
+
+function sensitiveFlagList(
+  moderationReason: string | null,
+): SensitiveFlagName[] {
+  const match = SENSITIVE_PREFIX.exec(moderationReason ?? "");
+  if (!match) return [];
+
+  return match[1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value): value is SensitiveFlagName =>
+      (SENSITIVE_FLAG_NAMES as readonly string[]).includes(value),
+    );
+}
+
 /** Разбирает сохранённый moderationReason в флаги чувствительного контента. */
 export function parseModerationFlags(
   moderationReason: string | null,
@@ -122,17 +154,35 @@ export function parseModerationFlags(
     phone: false,
     url: false,
   };
-  if (!moderationReason) return flags;
 
-  const match = /^sensitive_content:(.*)$/.exec(moderationReason);
-  if (!match) return flags;
-
-  for (const flag of match[1].split(",").map((value) => value.trim())) {
-    if (flag === "email" || flag === "phone" || flag === "url") {
-      flags[flag] = true;
-    }
+  for (const flag of sensitiveFlagList(moderationReason)) {
+    flags[flag] = true;
   }
   return flags;
+}
+
+/**
+ * Объединяет старый sensitive_content-префикс с новым текстом решения.
+ * Флаги сохраняются для needs_edit и последующих решений, даже если человек
+ * заменил текстовую причину.
+ */
+export function mergeModerationReason(
+  previousReason: string | null,
+  nextReason: string | null,
+): string | null {
+  const flags = new Set([
+    ...sensitiveFlagList(previousReason),
+    ...sensitiveFlagList(nextReason),
+  ]);
+  const humanReason = (nextReason ?? "")
+    .replace(SENSITIVE_PREFIX, "")
+    .replace(/^\s*;\s*/, "")
+    .trim();
+
+  const parts: string[] = [];
+  if (flags.size > 0) parts.push(`sensitive_content:${[...flags].join(",")}`);
+  if (humanReason) parts.push(humanReason);
+  return parts.length > 0 ? parts.join("; ") : null;
 }
 
 /**
@@ -141,6 +191,22 @@ export function parseModerationFlags(
  */
 export function duplicateScore(duplicateCount: number): number {
   return duplicateCount > 0 ? 1 : 0;
+}
+
+/** Ограничивает limit/offset безопасными значениями для запроса очереди. */
+export function normalizeQueuePagination(
+  limit: number = MODERATION_QUEUE_DEFAULT_LIMIT,
+  offset = 0,
+): { limit: number; offset: number } {
+  const safeLimit = Number.isFinite(limit)
+    ? Math.min(
+        Math.max(Math.trunc(limit), 1),
+        MODERATION_QUEUE_MAX_LIMIT,
+      )
+    : MODERATION_QUEUE_DEFAULT_LIMIT;
+  const safeOffset =
+    Number.isFinite(offset) && offset > 0 ? Math.trunc(offset) : 0;
+  return { limit: safeLimit, offset: safeOffset };
 }
 
 /** Преобразует строку БД в элемент очереди без email и сырого userId. */
@@ -152,7 +218,6 @@ export function toModerationQueueItem(
   return {
     id: row.id,
     wordId: row.wordId,
-    meaningId: row.meaningId,
     word: word?.lemma ?? null,
     translation: word?.meanings.join("; ") ?? null,
     pronunciation: word?.ruPronunciation ?? null,
@@ -168,54 +233,92 @@ export function toModerationQueueItem(
     contributorId: pseudonymousContributorId(row.contributorUserId),
     duplicateCount,
     duplicateScore: duplicateScore(duplicateCount),
-    reviewedBy: row.reviewedBy,
     reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
 
 /**
- * Возвращает очередь по статусу (по умолчанию pending) с числом дубликатов
- * по той же паре wordId + normalizedHash. Свежие вклады идут первыми.
+ * Возвращает страницу очереди по статусу (по умолчанию pending).
+ *
+ * Total считается отдельным COUNT, строки читаются с limit/offset, а число
+ * дубликатов — сгруппированным SQL-агрегатом только по wordId текущей
+ * страницы. Полные строки всей таблицы в память не загружаются.
  */
-export async function listModerationQueue(
-  status: ModerationStatus = "pending",
-): Promise<ModerationQueueItem[]> {
+export async function listModerationQueue(options: {
+  status?: ModerationStatus;
+  limit?: number;
+  offset?: number;
+} = {}): Promise<ModerationQueuePage> {
+  const status = options.status ?? "pending";
+  const { limit, offset } = normalizeQueuePagination(
+    options.limit,
+    options.offset,
+  );
+
+  const [totalRow] = await db
+    .select({ value: count() })
+    .from(mnemonicContributionsTable)
+    .where(eq(mnemonicContributionsTable.status, status));
+
   const rows = await db
     .select()
     .from(mnemonicContributionsTable)
-    .where(eq(mnemonicContributionsTable.status, status));
-  const allRows = await db.select().from(mnemonicContributionsTable);
-
-  const groupCounts = new Map<string, number>();
-  for (const row of allRows) {
-    const key = `${row.wordId}\u0000${row.normalizedHash}`;
-    groupCounts.set(key, (groupCounts.get(key) ?? 0) + 1);
-  }
-
-  return rows
-    .slice()
-    .sort(
-      (left, right) =>
-        right.submittedAt.getTime() - left.submittedAt.getTime() ||
-        right.createdAt.getTime() - left.createdAt.getTime(),
+    .where(eq(mnemonicContributionsTable.status, status))
+    .orderBy(
+      desc(mnemonicContributionsTable.submittedAt),
+      desc(mnemonicContributionsTable.createdAt),
     )
-    .map((row) => {
+    .limit(limit)
+    .offset(offset);
+
+  const wordIds = [...new Set(rows.map((row) => row.wordId))];
+  const duplicateGroups =
+    wordIds.length === 0
+      ? []
+      : await db
+          .select({
+            wordId: mnemonicContributionsTable.wordId,
+            normalizedHash: mnemonicContributionsTable.normalizedHash,
+            value: count(),
+          })
+          .from(mnemonicContributionsTable)
+          .where(inArray(mnemonicContributionsTable.wordId, wordIds))
+          .groupBy(
+            mnemonicContributionsTable.wordId,
+            mnemonicContributionsTable.normalizedHash,
+          );
+
+  const groupCounts = new Map(
+    duplicateGroups.map((group) => [
+      `${group.wordId}\u0000${group.normalizedHash}`,
+      Number(group.value),
+    ]),
+  );
+
+  return {
+    items: rows.map((row) => {
       const key = `${row.wordId}\u0000${row.normalizedHash}`;
       const total = groupCounts.get(key) ?? 1;
       return toModerationQueueItem(row, total - 1);
-    });
+    }),
+    total: Number(totalRow?.value ?? 0),
+    limit,
+    offset,
+  };
 }
 
 /**
  * Применяет решение модератора и всегда пишет audit_log.
  *
- * Повторный withdraw идемпотентен по состоянию: запись не меняется второй
- * раз, но факт повторного решения остаётся в аудите. null — вклад не найден.
+ * Withdrawn — терминальный статус для обычной модерации: вернуть вклад в
+ * approved/rejected/duplicate/pending нельзя (409 на уровне API). Повторный
+ * withdraw идемпотентен по состоянию, но остаётся в аудите. null-подобный
+ * not_found — вклад не найден.
  */
 export async function applyModerationDecision(
   decision: ModerationDecision,
-): Promise<ModerationDecisionResult | null> {
+): Promise<ModerationDecisionOutcome> {
   const reason = decision.reason?.trim() ? decision.reason.trim() : null;
 
   return db.transaction(async (tx) => {
@@ -223,7 +326,11 @@ export async function applyModerationDecision(
       .select()
       .from(mnemonicContributionsTable)
       .where(eq(mnemonicContributionsTable.id, decision.id));
-    if (!existing) return null;
+    if (!existing) return { outcome: "not_found" };
+
+    if (existing.status === "withdrawn" && decision.action !== "withdraw") {
+      return { outcome: "withdrawn" };
+    }
 
     const now = new Date();
     const idempotent =
@@ -235,13 +342,16 @@ export async function applyModerationDecision(
         .update(mnemonicContributionsTable)
         .set({
           status: ACTION_STATUS[decision.action],
-          moderationReason: reason,
+          moderationReason: mergeModerationReason(
+            existing.moderationReason,
+            reason,
+          ),
           reviewedBy: decision.reviewerId,
           reviewedAt: now,
         })
         .where(eq(mnemonicContributionsTable.id, decision.id))
         .returning();
-      if (!updated) return null;
+      if (!updated) return { outcome: "not_found" };
       row = updated;
     }
 
@@ -254,6 +364,8 @@ export async function applyModerationDecision(
       meta: {
         action: decision.action,
         previousStatus: existing.status,
+        previousReason: existing.moderationReason,
+        previousFlags: parseModerationFlags(existing.moderationReason),
         status: row.status,
         reason,
         idempotent,
@@ -262,12 +374,15 @@ export async function applyModerationDecision(
     });
 
     return {
-      id: row.id,
-      status: isModerationStatus(row.status) ? row.status : "pending",
-      moderationReason: row.moderationReason,
-      reviewedBy: row.reviewedBy,
-      reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
-      idempotent,
+      outcome: "ok" as const,
+      result: {
+        id: row.id,
+        status: isModerationStatus(row.status) ? row.status : "pending",
+        moderationReason: row.moderationReason,
+        reviewedBy: row.reviewedBy,
+        reviewedAt: row.reviewedAt ? row.reviewedAt.toISOString() : null,
+        idempotent,
+      },
     };
   });
 }

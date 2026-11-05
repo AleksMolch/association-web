@@ -30,6 +30,7 @@ psql "$DATABASE_URL" -c "select 1"
 | `NEXT_PUBLIC_APP_URL` | да | публичный URL, return URL платежей |
 | `BETTER_AUTH_URL` | да | база Better Auth |
 | `BETTER_AUTH_SECRET` | да | случайный секрет ≥32 символов |
+| `MODERATION_PSEUDONYM_SECRET` | да в production | HMAC-секрет псевдонимных id авторов вкладов |
 | `DATABASE_URL` | да | PostgreSQL |
 | `RESEND_API_KEY` | для писем | сброс пароля, подтверждение email |
 | `EMAIL_FROM` | для писем | подпись отправителя |
@@ -47,7 +48,9 @@ psql "$DATABASE_URL" -c "select 1"
 update "user" set role = 'admin' where email = 'admin@example.com';
 ```
 
-После входа откройте `/admin`. Раздел read-only; управление контентом и тарифами выполняется через код и миграции.
+После входа откройте `/admin`. Раздел read-only; управление контентом и тарифами выполняется через код и миграции. Очередь вкладов доступна по ссылке «Модерация вкладов» (`/admin/contributions`).
+
+В production обязательно задайте `MODERATION_PSEUDONYM_SECRET` — отдельный случайный секрет ≥32 символов. Он используется для HMAC-псевдонимов авторов вкладов; смена секрета меняет все псевдонимы и усложняет сопоставление решений.
 
 ## 4. Почта
 

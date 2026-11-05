@@ -82,8 +82,15 @@ export default async function ContributionsPage({
   const query = await searchParams;
   const requested = typeof query.status === "string" ? query.status : "pending";
   const status = isModerationStatus(requested) ? requested : "pending";
-  const queue = await listModerationQueue(status).catch(() => null);
-  if (!queue) return <SetupMessage />;
+  const rawOffset = typeof query.offset === "string" ? query.offset : "0";
+  const offset = /^\d+$/.test(rawOffset) ? Number(rawOffset) : 0;
+  const page = await listModerationQueue({
+    status,
+    limit: 100,
+    offset: Number.isSafeInteger(offset) ? offset : 0,
+  }).catch(() => null);
+  if (!page) return <SetupMessage />;
+  const hasMore = page.offset + page.items.length < page.total;
 
   return (
     <main id="main" className="mx-auto w-full max-w-7xl flex-1 px-5 py-8 sm:px-8">
@@ -102,7 +109,7 @@ export default async function ContributionsPage({
           <Link href="/admin" className={buttonVariants({ variant: "secondary", size: "sm" })}>
             В админку
           </Link>
-          <Badge variant="outline">{queue.length} записей</Badge>
+          <Badge variant="outline">{page.total} записей</Badge>
         </div>
       </div>
 
@@ -121,7 +128,7 @@ export default async function ContributionsPage({
         ))}
       </nav>
 
-      {queue.length === 0 ? (
+      {page.items.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>Очередь пуста</CardTitle>
@@ -131,27 +138,39 @@ export default async function ContributionsPage({
           </CardHeader>
         </Card>
       ) : (
-        <Card className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-sm">
-            <thead>
-              <tr className="border-b border-line text-left text-xs text-muted">
-                <th className="py-2 pr-3 font-medium">Слово</th>
-                <th className="py-2 pr-3 font-medium">Вклад</th>
-                <th className="py-2 pr-3 font-medium">Флаги</th>
-                <th className="py-2 pr-3 font-medium">Дубликаты</th>
-                <th className="py-2 pr-3 font-medium">Автор</th>
-                <th className="py-2 pr-3 font-medium">Даты</th>
-                <th className="py-2 pr-3 font-medium">Статус</th>
-                <th className="py-2 font-medium">Решение</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queue.map((item) => (
-                <QueueRow key={item.id} item={item} />
-              ))}
-            </tbody>
-          </table>
-        </Card>
+        <>
+          <Card className="overflow-x-auto">
+            <table className="w-full min-w-[1100px] text-sm">
+              <thead>
+                <tr className="border-b border-line text-left text-xs text-muted">
+                  <th className="py-2 pr-3 font-medium">Слово</th>
+                  <th className="py-2 pr-3 font-medium">Вклад</th>
+                  <th className="py-2 pr-3 font-medium">Флаги</th>
+                  <th className="py-2 pr-3 font-medium">Дубликаты</th>
+                  <th className="py-2 pr-3 font-medium">Автор</th>
+                  <th className="py-2 pr-3 font-medium">Даты</th>
+                  <th className="py-2 pr-3 font-medium">Статус</th>
+                  <th className="py-2 font-medium">Решение</th>
+                </tr>
+              </thead>
+              <tbody>
+                {page.items.map((item) => (
+                  <QueueRow key={item.id} item={item} />
+                ))}
+              </tbody>
+            </table>
+          </Card>
+          {hasMore ? (
+            <div className="mt-4 flex justify-center">
+              <Link
+                href={`/admin/contributions?status=${status}&offset=${page.offset + page.items.length}`}
+                className={buttonVariants({ variant: "secondary" })}
+              >
+                Показать ещё
+              </Link>
+            </div>
+          ) : null}
+        </>
       )}
     </main>
   );

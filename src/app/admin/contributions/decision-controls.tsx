@@ -70,7 +70,11 @@ export function DecisionControls({
         const payload = (await response.json().catch(() => null)) as
           | { error?: string }
           | null;
-        setError(payload?.error ?? "Не удалось сохранить решение.");
+        setError(
+          payload?.error === "WITHDRAWN_TERMINAL"
+            ? "Отозванный вклад нельзя вернуть в модерацию."
+            : (payload?.error ?? "Не удалось сохранить решение."),
+        );
         return;
       }
       router.refresh();
@@ -81,22 +85,32 @@ export function DecisionControls({
     }
   }
 
+  const availableActions =
+    status === "withdrawn"
+      ? ACTIONS.filter(({ action }) => action === "withdraw")
+      : ACTIONS;
+
   return (
     <div className="flex min-w-48 flex-col gap-2">
       <div className="flex flex-wrap gap-1">
-        {ACTIONS.map(({ action, label }) => (
+        {availableActions.map(({ action, label }) => (
           <Button
             key={action}
             type="button"
             size="sm"
             variant={action === "reject" ? "coral" : action === "approve" ? "primary" : "secondary"}
-            disabled={busy !== null || (action === "withdraw" && status === "withdrawn")}
+            disabled={busy !== null}
             onClick={() => void decide(action)}
           >
             {busy === action ? "…" : label}
           </Button>
         ))}
       </div>
+      {status === "withdrawn" ? (
+        <p className="text-xs text-muted">
+          Вклад отозван. Доступен только повторный отзыв.
+        </p>
+      ) : null}
       {error ? <p className="text-xs text-coral">{error}</p> : null}
     </div>
   );

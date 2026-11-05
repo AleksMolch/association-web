@@ -32,6 +32,18 @@ type StoredAudit = {
   createdAt: Date;
 };
 
+type MockQuery = {
+  where(condition: unknown): MockQuery;
+  orderBy(...columns: unknown[]): MockQuery;
+  limit(value: number): MockQuery;
+  offset(value: number): MockQuery;
+  groupBy(...columns: unknown[]): MockQuery;
+  then(
+    onFulfilled?: ((value: unknown[]) => unknown) | null,
+    onRejected?: ((reason: unknown) => unknown) | null,
+  ): Promise<unknown>;
+};
+
 const STATUSES = ["pending", "approved", "rejected", "duplicate", "withdrawn"];
 
 const mocks = vi.hoisted(() => {
@@ -55,31 +67,106 @@ const mocks = vi.hoisted(() => {
       : [];
   }
 
+  function filterRows(
+    rows: StoredContribution[],
+    params: unknown[],
+  ): StoredContribution[] {
+    if (params.length === 0) return rows;
+    if (params.length === 1) {
+      const value = String(params[0]);
+      if (STATUSES.includes(value)) {
+        return rows.filter((row) => row.status === value);
+      }
+      return rows.filter((row) => row.id === value);
+    }
+    if (params.every((value) => typeof value === "number")) {
+      const wordIds = params as number[];
+      return rows.filter((row) => wordIds.includes(row.wordId));
+    }
+    return [];
+  }
+
   const db = {
-    select() {
+    select(projection?: Record<string, unknown>) {
       return {
         from(table: unknown) {
-          const rows = contributionRowsFor(table);
-          return {
-            where(condition: unknown) {
-              const params = queryParams(condition);
-              if (params.length !== 1) return Promise.resolve([]);
+          const baseRows = contributionRowsFor(table);
+          const projectionKeys = projection ? Object.keys(projection) : [];
+          const mode = projectionKeys.includes("value")
+            ? projectionKeys.includes("wordId")
+              ? "groups"
+              : "count"
+            : "rows";
 
-              const value = String(params[0]);
-              if (STATUSES.includes(value)) {
-                return Promise.resolve(rows.filter((row) => row.status === value));
-              }
-              return Promise.resolve(rows.filter((row) => row.id === value));
+          let rows = baseRows.slice();
+          let limitValue: number | null = null;
+          let offsetValue = 0;
+
+          const builder: MockQuery = {
+            where(condition: unknown) {
+              rows = filterRows(baseRows, queryParams(condition));
+              return builder;
             },
-            then<TResult1 = StoredContribution[], TResult2 = never>(
-              onFulfilled?:
-                | ((value: StoredContribution[]) => TResult1 | PromiseLike<TResult1>)
-                | null,
-              onRejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+            orderBy() {
+              rows = rows
+                .slice()
+                .sort(
+                  (left, right) =>
+                    right.submittedAt.getTime() - left.submittedAt.getTime() ||
+                    right.createdAt.getTime() - left.createdAt.getTime(),
+                );
+              return builder;
+            },
+            limit(value: number) {
+              limitValue = value;
+              return builder;
+            },
+            offset(value: number) {
+              offsetValue = value;
+              return builder;
+            },
+            groupBy() {
+              return builder;
+            },
+            then(
+              onFulfilled?: ((value: unknown[]) => unknown) | null,
+              onRejected?: ((reason: unknown) => unknown) | null,
             ) {
-              return Promise.resolve(rows).then(onFulfilled, onRejected);
+              let value: unknown[];
+              if (mode === "count") {
+                value = [{ value: rows.length }];
+              } else if (mode === "groups") {
+                const groups = new Map<
+                  string,
+                  { wordId: number; normalizedHash: string; value: number }
+                >();
+                for (const row of rows) {
+                  const key = `${row.wordId}\u0000${row.normalizedHash}`;
+                  const current = groups.get(key);
+                  if (current) {
+                    current.value += 1;
+                  } else {
+                    groups.set(key, {
+                      wordId: row.wordId,
+                      normalizedHash: row.normalizedHash,
+                      value: 1,
+                    });
+                  }
+                }
+                value = [...groups.values()];
+              } else {
+                const end =
+                  limitValue === null
+                    ? undefined
+                    : offsetValue + limitValue;
+                value = rows
+                  .slice(offsetValue, end)
+                  .map((row) => ({ ...row }));
+              }
+              return Promise.resolve(value).then(onFulfilled, onRejected);
             },
           };
+          return builder;
         },
       };
     },
@@ -139,6 +226,13 @@ vi.mock("@/lib/server/session", () => ({ getServerSession: mocks.getServerSessio
 
 import { GET as queueGET } from "./route";
 import { POST as decisionPOST } from "./[id]/decision/route";
+
+type QueueResponse = {
+  items: Record<string, unknown>[];
+  total: number;
+  limit: number;
+  offset: number;
+};
 
 const adminSession = { user: { id: "admin-1", role: "admin" } };
 const userSession = { user: { id: "user-a", role: "user" } };
@@ -222,21 +316,49 @@ describe("GET /api/admin/mnemonic-contributions", () => {
       status: "approved",
       submittedAt: new Date("2026-11-04T12:00:00.000Z"),
     });
-    const rejected = seedContribution({ status: "rejected" });
+    seedContribution({ status: "rejected" });
 
     const defaultResponse = await queueGET(queueRequest());
-    const pendingItems = (await defaultResponse.json()) as { id: string }[];
+    const defaultBody = (await defaultResponse.json()) as QueueResponse;
     expect(defaultResponse.status).toBe(200);
-    expect(pendingItems.map((item) => item.id)).toEqual([pending.id]);
+    expect(defaultBody.items.map((item) => item.id)).toEqual([pending.id]);
+    expect(defaultBody).toMatchObject({ total: 1, limit: 50, offset: 0 });
 
     const approvedResponse = await queueGET(queueRequest("?status=approved"));
-    const approvedItems = (await approvedResponse.json()) as { id: string }[];
-    expect(approvedItems.map((item) => item.id)).toEqual([approved.id]);
-    expect(approvedItems[0]).not.toHaveProperty("id", rejected.id);
+    const approvedBody = (await approvedResponse.json()) as QueueResponse;
+    expect(approvedBody.items.map((item) => item.id)).toEqual([approved.id]);
+    expect(approvedBody.total).toBe(1);
   });
 
-  it("rejects an unknown status filter", async () => {
-    const response = await queueGET(queueRequest("?status=deleted"));
+  it("paginates with limit and offset", async () => {
+    const oldest = seedContribution({
+      submittedAt: new Date("2026-11-01T12:00:00.000Z"),
+    });
+    const middle = seedContribution({
+      submittedAt: new Date("2026-11-02T12:00:00.000Z"),
+    });
+    const newest = seedContribution({
+      submittedAt: new Date("2026-11-03T12:00:00.000Z"),
+    });
+
+    const response = await queueGET(queueRequest("?limit=1&offset=1"));
+    const body = (await response.json()) as QueueResponse;
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ total: 3, limit: 1, offset: 1 });
+    expect(body.items.map((item) => item.id)).toEqual([middle.id]);
+    expect(body.items.map((item) => item.id)).not.toContain(oldest.id);
+    expect(body.items.map((item) => item.id)).not.toContain(newest.id);
+  });
+
+  it.each([
+    ["unknown status", "?status=deleted"],
+    ["zero limit", "?limit=0"],
+    ["limit above maximum", "?limit=201"],
+    ["negative offset", "?offset=-1"],
+    ["non-numeric limit", "?limit=ten"],
+  ])("rejects %s with 400", async (_label, query) => {
+    const response = await queueGET(queueRequest(query));
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "INVALID_QUERY" });
@@ -264,16 +386,17 @@ describe("GET /api/admin/mnemonic-contributions", () => {
     });
 
     const response = await queueGET(queueRequest());
-    const body = (await response.json()) as Record<string, unknown>[];
+    const body = (await response.json()) as QueueResponse;
     const serialized = JSON.stringify(body);
 
     expect(response.status).toBe(200);
-    expect(body).toHaveLength(3);
+    expect(body.items).toHaveLength(3);
+    expect(body.total).toBe(3);
     expect(serialized).not.toContain("user-a");
     expect(serialized).not.toContain("user-b");
     expect(serialized).not.toContain("@");
 
-    const firstItem = body.find((item) => item.id === first.id)!;
+    const firstItem = body.items.find((item) => item.id === first.id)!;
     expect(firstItem).toMatchObject({
       wordId: 1,
       word: "bright",
@@ -291,24 +414,31 @@ describe("GET /api/admin/mnemonic-contributions", () => {
     });
     expect(firstItem.contributorId).toMatch(/^contributor_[0-9a-f]{64}$/);
     expect(firstItem.contributorId).toBe(
-      (body.find((item) => item.id === duplicate.id)! as { contributorId: string })
+      (body.items.find((item) => item.id === duplicate.id)! as { contributorId: string })
         .contributorId,
     );
     expect(firstItem.contributorId).not.toBe(
-      (body.find((item) => item.id === other.id)! as { contributorId: string })
+      (body.items.find((item) => item.id === other.id)! as { contributorId: string })
         .contributorId,
     );
     expect(firstItem.submittedAt).toBe("2026-11-05T12:00:00.000Z");
     expect(firstItem).not.toHaveProperty("email");
     expect(firstItem).not.toHaveProperty("contributorUserId");
     expect(firstItem).not.toHaveProperty("normalizedHash");
+    expect(firstItem).not.toHaveProperty("reviewedBy");
+    expect(firstItem).not.toHaveProperty("meaningId");
   });
 
-  it("returns an empty queue when nothing matches", async () => {
+  it("returns an empty page when nothing matches", async () => {
     const response = await queueGET(queueRequest("?status=withdrawn"));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual([]);
+    expect(await response.json()).toEqual({
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    });
   });
 });
 
@@ -338,7 +468,7 @@ describe("POST /api/admin/mnemonic-contributions/:id/decision", () => {
     expect(mocks.audits.size).toBe(0);
   });
 
-  it("approves a contribution, records review fields and writes an audit row", async () => {
+  it("approves a contribution, preserves sensitive flags and writes an audit row", async () => {
     const row = seedContribution({
       moderationReason: "sensitive_content:email",
       status: "pending",
@@ -354,7 +484,7 @@ describe("POST /api/admin/mnemonic-contributions/:id/decision", () => {
     expect(body).toMatchObject({
       id: row.id,
       status: "approved",
-      moderationReason: null,
+      moderationReason: "sensitive_content:email",
       reviewedBy: "admin-1",
       idempotent: false,
     });
@@ -371,7 +501,47 @@ describe("POST /api/admin/mnemonic-contributions/:id/decision", () => {
       action: "mnemonic_contribution.approve",
       targetType: "mnemonic_contribution",
       targetId: row.id,
-      meta: { action: "approve", previousStatus: "pending", status: "approved" },
+      meta: {
+        action: "approve",
+        previousStatus: "pending",
+        previousReason: "sensitive_content:email",
+        status: "approved",
+      },
+    });
+  });
+
+  it("keeps sensitive flags when needs_edit adds a reason", async () => {
+    const row = seedContribution({
+      moderationReason: "sensitive_content:email,phone",
+      status: "pending",
+    });
+
+    const response = await decisionPOST(
+      decisionRequest({ action: "needs_edit", reason: "Слишком коротко" }),
+      decisionContext(row.id),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "pending",
+      moderationReason: "sensitive_content:email,phone; Слишком коротко",
+    });
+    expect(mocks.contributions.get(row.id)).toMatchObject({
+      status: "pending",
+      moderationReason: "sensitive_content:email,phone; Слишком коротко",
+      reviewedBy: "admin-1",
+    });
+
+    const queue = (await (await queueGET(queueRequest())).json()) as QueueResponse;
+    const item = queue.items.find((entry) => entry.id === row.id)!;
+    expect(item.flags).toEqual({ email: true, phone: true, url: false });
+
+    const [audit] = [...mocks.audits.values()];
+    expect(audit.meta).toMatchObject({
+      action: "needs_edit",
+      previousReason: "sensitive_content:email,phone",
+      previousFlags: { email: true, phone: true, url: false },
+      reason: "Слишком коротко",
     });
   });
 
@@ -468,6 +638,39 @@ describe("POST /api/admin/mnemonic-contributions/:id/decision", () => {
     expect(withdrawAudits).toHaveLength(2);
     expect(withdrawAudits[1].meta).toMatchObject({ idempotent: true });
   });
+
+  it("returns 409 when approving a withdrawn contribution", async () => {
+    const row = seedContribution({ status: "withdrawn" });
+
+    const response = await decisionPOST(
+      decisionRequest({ action: "approve" }),
+      decisionContext(row.id),
+    );
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "WITHDRAWN_TERMINAL" });
+    expect(mocks.contributions.get(row.id)?.status).toBe("withdrawn");
+    expect(mocks.contributions.get(row.id)?.reviewedBy).toBeNull();
+    expect(mocks.audits.size).toBe(0);
+  });
+
+  it.each(["approve", "reject", "duplicate", "needs_edit"] as const)(
+    "returns 409 for %s on a withdrawn contribution",
+    async (action) => {
+      const row = seedContribution({ status: "withdrawn" });
+      const reason =
+        action === "reject" || action === "needs_edit" ? "Причина" : undefined;
+
+      const response = await decisionPOST(
+        decisionRequest({ action, ...(reason ? { reason } : {}) }),
+        decisionContext(row.id),
+      );
+
+      expect(response.status).toBe(409);
+      expect(mocks.contributions.get(row.id)?.status).toBe("withdrawn");
+      expect(mocks.audits.size).toBe(0);
+    },
+  );
 
   it("does not affect other contributions or owner operations", async () => {
     const target = seedContribution({

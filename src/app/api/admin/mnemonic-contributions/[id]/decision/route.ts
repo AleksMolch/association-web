@@ -3,7 +3,8 @@
  *
  * POST body: { action, reason? }. approve/reject/duplicate/withdraw меняют
  * статус, needs_edit оставляет pending и сохраняет причину. Approve означает
- * «одобрено для ручной редактуры», а не публикацию контента.
+ * «одобрено для ручной редактуры», а не публикацию контента. Withdrawn —
+ * терминальный статус: другие действия возвращают 409.
  */
 
 import { NextResponse } from "next/server";
@@ -55,15 +56,23 @@ export async function POST(request: Request, context: RouteContext) {
     }
 
     const { id } = await context.params;
-    const result = await applyModerationDecision({
+    const outcome = await applyModerationDecision({
       id,
       action: parsed.data.action,
       reason: parsed.data.reason,
       reviewerId: session.user.id,
     });
-    if (!result) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    if (outcome.outcome === "not_found") {
+      return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+    }
+    if (outcome.outcome === "withdrawn") {
+      return NextResponse.json(
+        { error: "WITHDRAWN_TERMINAL" },
+        { status: 409 },
+      );
+    }
 
-    return NextResponse.json(result);
+    return NextResponse.json(outcome.result);
   } catch {
     console.error("[admin:mnemonic-contributions:decision] request failed");
     return NextResponse.json(
