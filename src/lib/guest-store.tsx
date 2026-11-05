@@ -19,6 +19,7 @@ import React, {
 } from "react";
 
 import { recordMnemonicCreation } from "@/features/contributions/consent-preferences";
+import { clearOutboxStorage } from "@/features/contributions/outbox";
 import type {
   LocalMnemonicMedia,
   UserMnemonic,
@@ -692,6 +693,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
   );
 
   const reset = useCallback(() => {
+    clearOutboxStorage();
     updateState(() => emptyState());
   }, []);
 

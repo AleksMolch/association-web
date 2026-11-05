@@ -13,10 +13,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 
 import {
+  clearOutboxStorage,
   clearPendingOutbox,
   enqueueContribution,
   flushOutbox,
   outboxStorageKey,
+  resetBlockedOutbox,
   submitWithdrawal,
   type OutboxStorage,
 } from "./outbox";
@@ -24,7 +26,11 @@ import {
 type StoredEntry = {
   id: string;
   sourceMnemonicId: string;
-  payload: { clientContributionId: string };
+  payload: {
+    clientContributionId: string;
+    cueWord: string;
+    submittedAt: string;
+  };
   status: string;
   attemptCount: number;
   nextAttemptAt: string | null;
@@ -196,6 +202,64 @@ describe("enqueueContribution", () => {
   });
 });
 
+describe("scoping, clear and reset", () => {
+  it("очищает неотправленные записи без userId во всех очередях", () => {
+    enqueueContribution(mnemonic(), options());
+    enqueueContribution(
+      mnemonic({ id: "usr-b" }),
+      options({ userId: "user-b" }),
+    );
+
+    clearPendingOutbox(options({ userId: null }));
+
+    expect(queue(storage, "user-a")).toHaveLength(0);
+    expect(queue(storage, "user-b")).toHaveLength(0);
+  });
+
+  it("сохраняет rejected при очистке, удаляя pending и blocked", () => {
+    enqueueContribution(mnemonic({ id: "usr-1" }), options());
+    enqueueContribution(mnemonic({ id: "usr-2" }), options());
+    enqueueContribution(mnemonic({ id: "usr-3" }), options());
+    const entries = queue(storage);
+    entries[0].status = "rejected";
+    entries[1].status = "blocked";
+    storage.setItem(outboxStorageKey("user-a"), JSON.stringify(entries));
+
+    clearPendingOutbox(options());
+
+    expect(queue(storage)).toHaveLength(1);
+    expect(queue(storage)[0].status).toBe("rejected");
+  });
+
+  it("возвращает blocked в pending после нового согласия", () => {
+    enqueueContribution(mnemonic(), options());
+    const entries = queue(storage);
+    entries[0].status = "blocked";
+    entries[0].attemptCount = 3;
+    entries[0].nextAttemptAt = "2026-11-05T13:00:00.000Z";
+    storage.setItem(outboxStorageKey("user-a"), JSON.stringify(entries));
+
+    resetBlockedOutbox(options());
+
+    expect(queue(storage)[0].status).toBe("pending");
+    expect(queue(storage)[0].attemptCount).toBe(0);
+    expect(queue(storage)[0].nextAttemptAt).toBeNull();
+  });
+
+  it("clearOutboxStorage удаляет все ключи очередей", () => {
+    enqueueContribution(mnemonic(), options());
+    enqueueContribution(
+      mnemonic({ id: "usr-b" }),
+      options({ userId: "user-b" }),
+    );
+
+    clearOutboxStorage(options({ userId: null }));
+
+    expect(storage.getItem(outboxStorageKey("user-a"))).toBeNull();
+    expect(storage.getItem(outboxStorageKey("user-b"))).toBeNull();
+  });
+});
+
 describe("flushOutbox", () => {
   it("разбивает 51 запись на два батча и удаляет отправленные", async () => {
     for (let index = 0; index < 51; index += 1) {
@@ -249,6 +313,96 @@ describe("flushOutbox", () => {
 
     await flushOutbox(options({ fetch: fetchMock }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("не отправляет и не меняет очередь без granted", async () => {
+    enqueueContribution(mnemonic(), options());
+    const fetchMock = vi.fn();
+
+    await expect(
+      flushOutbox(options({ fetch: fetchMock, consentStatus: "withdrawn" })),
+    ).resolves.toEqual({ sent: 0, failed: 0 });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queue(storage)).toHaveLength(1);
+  });
+
+  it("не воскрешает очередь, очищенную во время запроса", async () => {
+    enqueueContribution(mnemonic(), options());
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn<
+      (url: string, init?: RequestInit) => Promise<Response>
+    >(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const flushing = flushOutbox(options({ fetch: fetchMock }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    clearPendingOutbox(options({ consentStatus: "withdrawn" }));
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as { items: { clientContributionId: string }[] };
+    resolveFetch(
+      jsonResponse({
+        accepted: {
+          count: 1,
+          ids: body.items.map((item) => item.clientContributionId),
+        },
+        duplicates: { count: 0, ids: [] },
+        rejected: { count: 0, items: [] },
+      }),
+    );
+
+    await expect(flushing).resolves.toEqual({ sent: 1, failed: 0 });
+    expect(queue(storage)).toHaveLength(0);
+  });
+
+  it("не удаляет новую ревизию, заменённую во время запроса", async () => {
+    enqueueContribution(mnemonic(), options());
+    let resolveFetch!: (response: Response) => void;
+    const fetchMock = vi.fn<
+      (url: string, init?: RequestInit) => Promise<Response>
+    >(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+
+    const flushing = flushOutbox(options({ fetch: fetchMock }));
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    enqueueContribution(
+      mnemonic({
+        cueWord: "Братик",
+        updatedAt: "2026-11-05T11:30:00.000Z",
+        rev: 2,
+      }),
+      options(),
+    );
+
+    const body = JSON.parse(
+      String((fetchMock.mock.calls[0][1] as RequestInit).body),
+    ) as { items: { clientContributionId: string }[] };
+    resolveFetch(
+      jsonResponse({
+        accepted: {
+          count: 1,
+          ids: body.items.map((item) => item.clientContributionId),
+        },
+        duplicates: { count: 0, ids: [] },
+        rejected: { count: 0, items: [] },
+      }),
+    );
+
+    await expect(flushing).resolves.toEqual({ sent: 1, failed: 0 });
+    expect(queue(storage)).toHaveLength(1);
+    expect(queue(storage)[0].payload.cueWord).toBe("Братик");
   });
 
   it("увеличивает счётчик попыток и откладывает повтор с backoff", async () => {

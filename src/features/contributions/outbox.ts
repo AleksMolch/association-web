@@ -22,10 +22,13 @@ const BACKOFF_MAX_MS = 60 * 60 * 1000;
 const STORAGE_PREFIX = "association_contribution_outbox_v1";
 
 /** Минимальный интерфейс localStorage, удобный для фейков в тестах. */
-export type OutboxStorage = Pick<
-  Storage,
-  "getItem" | "setItem" | "removeItem"
->;
+export type OutboxStorage = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+  key?(index: number): string | null;
+  length?: number;
+};
 
 type OutboxEntry = {
   id: string;
@@ -67,6 +70,7 @@ export class ContributionOutboxError extends Error {
 }
 
 const memoryValues = new Map<string, string>();
+const knownKeys = new Set<string>();
 
 const memoryStorage: OutboxStorage = {
   getItem: (key) => memoryValues.get(key) ?? null,
@@ -75,6 +79,10 @@ const memoryStorage: OutboxStorage = {
   },
   removeItem: (key) => {
     memoryValues.delete(key);
+  },
+  key: (index) => [...memoryValues.keys()][index] ?? null,
+  get length() {
+    return memoryValues.size;
   },
 };
 
@@ -137,15 +145,67 @@ function writeQueue(
   storage: OutboxStorage,
   entries: OutboxEntry[],
 ): void {
+  const key = outboxStorageKey(userId);
+
   try {
     if (entries.length === 0) {
-      storage.removeItem(outboxStorageKey(userId));
+      storage.removeItem(key);
+      knownKeys.delete(key);
       return;
     }
 
-    storage.setItem(outboxStorageKey(userId), JSON.stringify(entries));
+    storage.setItem(key, JSON.stringify(entries));
+    knownKeys.add(key);
   } catch {
     // Переполнение localStorage не должно ломать сохранение ассоциации.
+  }
+}
+
+function mutateQueue(
+  userId: string,
+  storage: OutboxStorage,
+  mutate: (entries: OutboxEntry[]) => OutboxEntry[],
+): void {
+  writeQueue(userId, storage, mutate(readQueue(userId, storage)));
+}
+
+function listOutboxKeys(storage: OutboxStorage): string[] {
+  const keys = new Set<string>();
+
+  if (typeof storage.key === "function" && typeof storage.length === "number") {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index);
+      if (key?.startsWith(`${STORAGE_PREFIX}:`)) keys.add(key);
+    }
+  }
+
+  for (const key of knownKeys) {
+    if (storage.getItem(key) !== null) keys.add(key);
+  }
+
+  return [...keys];
+}
+
+function everyQueue(
+  storage: OutboxStorage,
+  mutate: (entries: OutboxEntry[]) => OutboxEntry[],
+  options: OutboxOptions,
+): void {
+  const userId = options.userId ?? null;
+
+  if (userId) {
+    mutateQueue(userId, storage, mutate);
+    return;
+  }
+
+  for (const key of listOutboxKeys(storage)) {
+    const encoded = key.slice(`${STORAGE_PREFIX}:`.length);
+    try {
+      mutateQueue(decodeURIComponent(encoded), storage, mutate);
+    } catch {
+      storage.removeItem(key);
+      knownKeys.delete(key);
+    }
   }
 }
 
@@ -174,42 +234,44 @@ export function enqueueContribution(
 
   const storage = resolveStorage(options);
   const now = resolveNow(options);
-  const entries = readQueue(userId, storage);
-  const existingIndex = entries.findIndex(
-    (entry) =>
-      entry.sourceMnemonicId === mnemonic.id &&
-      (entry.status === "pending" ||
-        entry.status === "blocked" ||
-        entry.status === "rejected"),
-  );
-  const existing = existingIndex >= 0 ? entries[existingIndex] : null;
 
-  if (existing && sameRevision(existing.payload, mnemonic)) return;
+  mutateQueue(userId, storage, (entries) => {
+    const existingIndex = entries.findIndex(
+      (entry) =>
+        entry.sourceMnemonicId === mnemonic.id &&
+        (entry.status === "pending" ||
+          entry.status === "blocked" ||
+          entry.status === "rejected"),
+    );
+    const existing = existingIndex >= 0 ? entries[existingIndex] : null;
 
-  const entry: OutboxEntry = {
-    id: resolveRandomUUID(options),
-    sourceMnemonicId: mnemonic.id,
-    payload: {
-      clientContributionId: resolveRandomUUID(options),
+    if (existing && sameRevision(existing.payload, mnemonic)) return entries;
+
+    const entry: OutboxEntry = {
+      id: resolveRandomUUID(options),
       sourceMnemonicId: mnemonic.id,
-      wordId: mnemonic.wordId,
-      meaningId: mnemonic.meaningId,
-      cueWord: mnemonic.cueWord,
-      sceneText: mnemonic.sceneText,
-      locale: mnemonic.locale,
-      consentVersion: options.consentVersion ?? CONSENT_VERSION,
-      submittedAt: mnemonic.updatedAt,
-    },
-    status: "pending",
-    attemptCount: 0,
-    nextAttemptAt: null,
-    createdAt: now.toISOString(),
-  };
+      payload: {
+        clientContributionId: resolveRandomUUID(options),
+        sourceMnemonicId: mnemonic.id,
+        wordId: mnemonic.wordId,
+        meaningId: mnemonic.meaningId,
+        cueWord: mnemonic.cueWord,
+        sceneText: mnemonic.sceneText,
+        locale: mnemonic.locale,
+        consentVersion: options.consentVersion ?? CONSENT_VERSION,
+        submittedAt: mnemonic.updatedAt,
+      },
+      status: "pending",
+      attemptCount: 0,
+      nextAttemptAt: null,
+      createdAt: now.toISOString(),
+    };
 
-  if (existingIndex >= 0) entries[existingIndex] = entry;
-  else entries.push(entry);
+    if (existingIndex >= 0) entries[existingIndex] = entry;
+    else entries.push(entry);
 
-  writeQueue(userId, storage, entries);
+    return entries;
+  });
 }
 
 function nextAttemptAt(now: Date, attemptCount: number): string {
@@ -221,19 +283,37 @@ function nextAttemptAt(now: Date, attemptCount: number): string {
   return new Date(now.getTime() + delay).toISOString();
 }
 
+type SentEntry = {
+  id: string;
+  clientContributionId: string;
+};
+
+function isStillSent(entry: OutboxEntry, sent: SentEntry): boolean {
+  return (
+    entry.id === sent.id &&
+    entry.payload.clientContributionId === sent.clientContributionId
+  );
+}
+
 function markAttemptFailure(
   entries: OutboxEntry[],
-  failedIds: Set<string>,
+  sent: SentEntry[],
   now: Date,
-): void {
-  for (const entry of entries) {
-    if (!failedIds.has(entry.id)) continue;
+): OutboxEntry[] {
+  return entries.map((entry) => {
+    const match = sent.find((candidate) => isStillSent(entry, candidate));
+
+    if (!match) return entry;
 
     const attemptCount = entry.attemptCount + 1;
-    entry.attemptCount = attemptCount;
-    entry.nextAttemptAt = nextAttemptAt(now, attemptCount);
-    entry.status = "pending";
-  }
+
+    return {
+      ...entry,
+      attemptCount,
+      nextAttemptAt: nextAttemptAt(now, attemptCount),
+      status: "pending",
+    };
+  });
 }
 
 function collectIds(value: unknown, key: "accepted" | "duplicates"): string[] {
@@ -276,19 +356,22 @@ function collectRejected(value: unknown): string[] {
  * При 403 очередь останавливается, а ожидающие записи помечаются `blocked`.
  * Сетевой сбой или 5xx увеличивает `attemptCount` и откладывает повтор с
  * экспоненциальной задержкой. Принятые и дубликаты удаляются из очереди.
+ * Ответ применяется только к тем записям, которые всё ещё существуют с тем же
+ * `clientContributionId`: отзыв или новая ревизия во время запроса побеждают.
  */
 export async function flushOutbox(
   options: OutboxOptions = {},
 ): Promise<{ sent: number; failed: number }> {
   const userId = options.userId ?? null;
 
-  if (!userId) return { sent: 0, failed: 0 };
+  if (!userId || options.consentStatus !== "granted") {
+    return { sent: 0, failed: 0 };
+  }
 
   const storage = resolveStorage(options);
   const now = resolveNow(options);
   const nowIso = now.toISOString();
-  let entries = readQueue(userId, storage);
-  const due = entries.filter(
+  const due = readQueue(userId, storage).filter(
     (entry) =>
       entry.status === "pending" &&
       (entry.nextAttemptAt === null || entry.nextAttemptAt <= nowIso),
@@ -301,8 +384,33 @@ export async function flushOutbox(
   let failed = 0;
 
   for (let offset = 0; offset < due.length; offset += BATCH_SIZE) {
-    const chunk = due.slice(offset, offset + BATCH_SIZE);
+    const snapshot = due.slice(offset, offset + BATCH_SIZE);
+    const sentEntries: SentEntry[] = snapshot.map((entry) => ({
+      id: entry.id,
+      clientContributionId: entry.payload.clientContributionId,
+    }));
+    const sentById = new Map(
+      sentEntries.map((sentEntry) => [sentEntry.id, sentEntry]),
+    );
+    const current = readQueue(userId, storage);
+    const chunk = snapshot.filter((entry) => {
+      const sentEntry = sentById.get(entry.id);
+      return sentEntry
+        ? current.some(
+            (candidate) =>
+              candidate.status === "pending" &&
+              isStillSent(candidate, sentEntry),
+          )
+        : false;
+    });
+
+    if (chunk.length === 0) break;
+
     const chunkIds = new Set(chunk.map((entry) => entry.id));
+    const chunkSent = sentEntries.filter((sentEntry) =>
+      chunkIds.has(sentEntry.id),
+    );
+
     let response: Response;
 
     try {
@@ -319,26 +427,29 @@ export async function flushOutbox(
         }),
       });
     } catch {
-      markAttemptFailure(entries, chunkIds, now);
+      mutateQueue(userId, storage, (entries) =>
+        markAttemptFailure(entries, chunkSent, now),
+      );
       failed += chunk.length;
-      writeQueue(userId, storage, entries);
       break;
     }
 
     if (response.status === 403) {
-      for (const entry of entries) {
-        if (entry.status === "pending") entry.status = "blocked";
-      }
-      writeQueue(userId, storage, entries);
+      mutateQueue(userId, storage, (entries) =>
+        entries.map((entry) =>
+          entry.status === "pending" ? { ...entry, status: "blocked" } : entry,
+        ),
+      );
       break;
     }
 
     if (response.status === 401) break;
 
     if (!response.ok) {
-      markAttemptFailure(entries, chunkIds, now);
+      mutateQueue(userId, storage, (entries) =>
+        markAttemptFailure(entries, chunkSent, now),
+      );
       failed += chunk.length;
-      writeQueue(userId, storage, entries);
       break;
     }
 
@@ -347,9 +458,10 @@ export async function flushOutbox(
     try {
       body = await response.json();
     } catch {
-      markAttemptFailure(entries, chunkIds, now);
+      mutateQueue(userId, storage, (entries) =>
+        markAttemptFailure(entries, chunkSent, now),
+      );
       failed += chunk.length;
-      writeQueue(userId, storage, entries);
       break;
     }
 
@@ -358,53 +470,112 @@ export async function flushOutbox(
       ...collectIds(body, "duplicates"),
     ]);
     const rejectedIds = new Set(collectRejected(body));
-    const removeIds = new Set<string>();
+    const completedIds = new Set<string>();
     const rejectedEntryIds = new Set<string>();
-    const unresolvedIds = new Set<string>();
+    const unresolved: SentEntry[] = [];
 
-    for (const entry of chunk) {
-      const clientId = entry.payload.clientContributionId;
-
-      if (acceptedIds.has(clientId)) {
-        removeIds.add(entry.id);
+    for (const sentEntry of chunkSent) {
+      if (acceptedIds.has(sentEntry.clientContributionId)) {
+        completedIds.add(sentEntry.id);
         continue;
       }
 
-      if (rejectedIds.has(clientId)) {
-        rejectedEntryIds.add(entry.id);
+      if (rejectedIds.has(sentEntry.clientContributionId)) {
+        rejectedEntryIds.add(sentEntry.id);
         continue;
       }
 
-      unresolvedIds.add(entry.id);
+      unresolved.push(sentEntry);
     }
 
-    sent += removeIds.size;
-    failed += rejectedEntryIds.size + unresolvedIds.size;
-    markAttemptFailure(entries, unresolvedIds, now);
+    sent += completedIds.size;
+    failed += rejectedEntryIds.size + unresolved.length;
 
-    for (const entry of entries) {
-      if (rejectedEntryIds.has(entry.id)) entry.status = "rejected";
-    }
+    mutateQueue(userId, storage, (entries) => {
+      const next = entries.filter((entry) => {
+        if (!completedIds.has(entry.id)) return true;
 
-    entries = entries.filter((entry) => !removeIds.has(entry.id));
-    writeQueue(userId, storage, entries);
+        const sentEntry = sentById.get(entry.id);
+        return !sentEntry || !isStillSent(entry, sentEntry);
+      });
+
+      return markAttemptFailure(
+        next.map((entry) => {
+          const sentEntry = sentById.get(entry.id);
+
+          if (
+            sentEntry &&
+            isStillSent(entry, sentEntry) &&
+            rejectedEntryIds.has(entry.id)
+          ) {
+            return { ...entry, status: "rejected" as const };
+          }
+
+          return entry;
+        }),
+        unresolved,
+        now,
+      );
+    });
   }
 
   return { sent, failed };
 }
 
 /**
- * Удаляет неотправленные записи очереди текущего пользователя.
+ * Удаляет неотправленные записи текущего пользователя.
  *
- * Вызывается при отказе от участия и отзыве согласия, чтобы старые тексты не
- * ушли на сервер после повторного включения настройки.
+ * Записи со статусом `rejected` сохраняются. Без `userId` очищаются
+ * неотправленные записи во всех локальных очередях.
  */
 export function clearPendingOutbox(options: OutboxOptions = {}): void {
+  everyQueue(
+    resolveStorage(options),
+    (entries) =>
+      entries.filter(
+        (entry) => entry.status !== "pending" && entry.status !== "blocked",
+      ),
+    options,
+  );
+}
+
+/**
+ * Возвращает заблокированные после 403 записи в очередь после нового согласия.
+ */
+export function resetBlockedOutbox(options: OutboxOptions = {}): void {
+  everyQueue(
+    resolveStorage(options),
+    (entries) =>
+      entries.map((entry) =>
+        entry.status === "blocked"
+          ? {
+              ...entry,
+              status: "pending" as const,
+              attemptCount: 0,
+              nextAttemptAt: null,
+            }
+          : entry,
+      ),
+    options,
+  );
+}
+
+/** Полностью удаляет очереди: используется при сбросе локальных данных. */
+export function clearOutboxStorage(options: OutboxOptions = {}): void {
+  const storage = resolveStorage(options);
   const userId = options.userId ?? null;
 
-  if (!userId) return;
+  if (userId) {
+    const key = outboxStorageKey(userId);
+    storage.removeItem(key);
+    knownKeys.delete(key);
+    return;
+  }
 
-  writeQueue(userId, resolveStorage(options), []);
+  for (const key of listOutboxKeys(storage)) {
+    storage.removeItem(key);
+    knownKeys.delete(key);
+  }
 }
 
 /**

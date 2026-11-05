@@ -60,6 +60,7 @@ function TrainerSession({ initialSession }: { initialSession: SessionItem[] }) {
   const [state, setState] = useState<TrainerState>(() => loadInitialState(initialSession));
   const { queue, index, counts, finished } = state;
   const { data: session } = useSession();
+  const { settings } = useGuest();
   const sessionUserId = session?.user?.id ?? null;
 
   useEffect(() => {
@@ -74,8 +75,11 @@ function TrainerSession({ initialSession }: { initialSession: SessionItem[] }) {
   useEffect(() => {
     if (!finished || !sessionUserId) return;
 
-    void flushOutbox({ userId: sessionUserId }).catch(() => undefined);
-  }, [finished, sessionUserId]);
+    void flushOutbox({
+      userId: sessionUserId,
+      consentStatus: settings.contributionConsent,
+    }).catch(() => undefined);
+  }, [finished, sessionUserId, settings.contributionConsent]);
 
   const next = (kind: SessionItem["kind"]) => {
     setState((previous) => {

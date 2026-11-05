@@ -34,6 +34,7 @@ import {
   clearPendingOutbox,
   enqueueContribution,
   flushOutbox,
+  resetBlockedOutbox,
 } from "@/features/contributions/outbox";
 import {
   getContributionPreference,
@@ -160,6 +161,14 @@ export function WordDetail({
             userId: sessionUserId,
             preference,
           });
+
+          if (preference.status === "granted") {
+            resetBlockedOutbox({ userId: sessionUserId });
+            void flushOutbox({
+              userId: sessionUserId,
+              consentStatus: "granted",
+            });
+          }
         }
 
         setPreferenceUserId(sessionUserId);
@@ -233,8 +242,6 @@ export function WordDetail({
 
     if (action === "withdraw" || action === "decline") {
       clearPendingOutbox({ userId: sessionUserId });
-    } else if (action === "grant" && sessionUserId) {
-      void flushOutbox({ userId: sessionUserId });
     }
 
     if (!authenticated) return;
@@ -252,6 +259,14 @@ export function WordDetail({
           contributionConsentVersion: applied.contributionConsentVersion,
           contributionNextPromptAt: applied.contributionNextPromptAt,
         });
+
+        if (saved.status === "granted" && sessionUserId) {
+          resetBlockedOutbox({ userId: sessionUserId });
+          void flushOutbox({
+            userId: sessionUserId,
+            consentStatus: "granted",
+          });
+        }
       })
       .catch(() => {
         toast.error(

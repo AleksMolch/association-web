@@ -27,6 +27,7 @@ import {
 import {
   clearPendingOutbox,
   flushOutbox,
+  resetBlockedOutbox,
   submitWithdrawal,
 } from "@/features/contributions/outbox";
 import {
@@ -115,6 +116,14 @@ export default function DashboardSettingsPage() {
 
         if (reconciliation === "apply_server") {
           applyPreference(preference);
+
+          if (preference.status === "granted") {
+            resetBlockedOutbox({ userId: sessionUserId });
+            void flushOutbox({
+              userId: sessionUserId,
+              consentStatus: "granted",
+            });
+          }
           return;
         }
 
@@ -174,8 +183,6 @@ export default function DashboardSettingsPage() {
 
     if (action === "withdraw" || action === "decline") {
       clearPendingOutbox({ userId: sessionUserId });
-    } else if (action === "grant" && sessionUserId) {
-      void flushOutbox({ userId: sessionUserId });
     }
 
     if (!sessionUserId) return;
@@ -193,6 +200,14 @@ export default function DashboardSettingsPage() {
           contributionConsentVersion: applied.contributionConsentVersion,
           contributionNextPromptAt: applied.contributionNextPromptAt,
         });
+
+        if (saved.status === "granted") {
+          resetBlockedOutbox({ userId: sessionUserId });
+          void flushOutbox({
+            userId: sessionUserId,
+            consentStatus: "granted",
+          });
+        }
       })
       .catch(() => {
         if (decisionVersionRef.current !== version) return;
