@@ -47,6 +47,7 @@ export type Settings = {
   contributionConsent: ContributionConsent;
   contributionConsentVersion: string | null;
   contributionNextPromptAt: string | null;
+  contributionPromptAfterCount: number | null;
   userMnemonicCreatedCount: number;
 };
 
@@ -59,6 +60,7 @@ export const defaultSettings: Settings = {
   contributionConsent: "unset",
   contributionConsentVersion: null,
   contributionNextPromptAt: null,
+  contributionPromptAfterCount: null,
   userMnemonicCreatedCount: 0,
 };
 

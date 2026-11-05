@@ -624,6 +624,7 @@ describe("web progress compatibility", () => {
         contributionConsent: "unset",
         contributionConsentVersion: null,
         contributionNextPromptAt: null,
+        contributionPromptAfterCount: null,
         userMnemonicCreatedCount: 0,
       },
       userMnemonics: [personal],
