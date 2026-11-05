@@ -285,11 +285,8 @@ describe("CONSENT_COPY", () => {
     expect(CONSENT_COPY.settingsTitle).toBe(
       "Делиться текстом моих ассоциаций",
     );
-    expect(CONSENT_COPY.settingsDescription).toContain(
-      "Передаются только созвучие и описание сцены вместе с идентификатором слова",
-    );
-    expect(CONSENT_COPY.settingsDescription).toContain(
-      "Картинки, имена файлов и данные изображения не передаются",
+    expect(CONSENT_COPY.settingsDescription).toBe(
+      "Передаются только созвучие и описание сцены вместе с идентификатором слова. Изображения не передаются.",
     );
   });
 
