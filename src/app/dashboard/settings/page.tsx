@@ -25,6 +25,11 @@ import {
   reconcileConsentPreference,
 } from "@/features/contributions/consent-preferences";
 import {
+  clearPendingOutbox,
+  flushOutbox,
+  submitWithdrawal,
+} from "@/features/contributions/outbox";
+import {
   ContributionPreferenceError,
   getContributionPreference,
   putContributionPreference,
@@ -65,10 +70,11 @@ function Toggle({
 }
 
 export default function DashboardSettingsPage() {
-  const { ready, settings, stats, updateSettings, reset } = useGuest();
+  const { ready, settings, stats, userMnemonics, updateSettings, reset } = useGuest();
   const { data: session } = useSession();
   const sessionUserId = session?.user?.id ?? null;
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
+  const [withdrawing, setWithdrawing] = useState(false);
   const decisionVersionRef = useRef(0);
   const settingsRef = useRef(settings);
   const loading = Boolean(sessionUserId) && loadedUserId !== sessionUserId;
@@ -166,6 +172,12 @@ export default function DashboardSettingsPage() {
       contributionPromptAfterCount: next.contributionPromptAfterCount,
     });
 
+    if (action === "withdraw" || action === "decline") {
+      clearPendingOutbox({ userId: sessionUserId });
+    } else if (action === "grant" && sessionUserId) {
+      void flushOutbox({ userId: sessionUserId });
+    }
+
     if (!sessionUserId) return;
 
     void putContributionPreference({
@@ -188,6 +200,26 @@ export default function DashboardSettingsPage() {
           "Не удалось сохранить настройку на сервере. Решение сохранено на этом устройстве.",
         );
       });
+  }
+
+  async function removeShared() {
+    if (!sessionUserId || withdrawing) return;
+
+    setWithdrawing(true);
+
+    try {
+      const ids = Object.keys(userMnemonics);
+      await submitWithdrawal(ids, { userId: sessionUserId });
+      toast.success(
+        ids.length > 0
+          ? "Ранее переданные варианты удалены."
+          : "Ранее переданных вариантов нет.",
+      );
+    } catch {
+      toast.error("Не удалось удалить ранее переданные варианты.");
+    } finally {
+      setWithdrawing(false);
+    }
   }
 
   if (!ready) return <p className="text-sm text-muted">Загружаем настройки…</p>;
@@ -300,8 +332,15 @@ export default function DashboardSettingsPage() {
                 {CONSENT_COPY.detailDeclineButton}
               </Button>
             ) : null}
-            <Button variant="ghost" size="sm" disabled>
-              Удалить ранее переданные варианты
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!sessionUserId || withdrawing}
+              onClick={() => void removeShared()}
+            >
+              {withdrawing
+                ? "Удаляем…"
+                : "Удалить ранее переданные варианты"}
             </Button>
           </div>
         </div>

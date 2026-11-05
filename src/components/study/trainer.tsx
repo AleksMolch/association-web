@@ -13,6 +13,8 @@ import Link from "next/link";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
 import { getWord } from "@/content";
+import { flushOutbox } from "@/features/contributions/outbox";
+import { useSession } from "@/lib/auth-client";
 import { useGuest } from "@/lib/guest-store";
 import type { SessionItem } from "@/lib/types";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -57,6 +59,8 @@ function loadInitialState(fallback: SessionItem[]): TrainerState {
 function TrainerSession({ initialSession }: { initialSession: SessionItem[] }) {
   const [state, setState] = useState<TrainerState>(() => loadInitialState(initialSession));
   const { queue, index, counts, finished } = state;
+  const { data: session } = useSession();
+  const sessionUserId = session?.user?.id ?? null;
 
   useEffect(() => {
     try {
@@ -66,6 +70,12 @@ function TrainerSession({ initialSession }: { initialSession: SessionItem[] }) {
       // sessionStorage может быть недоступен в приватном режиме
     }
   }, [state, finished]);
+
+  useEffect(() => {
+    if (!finished || !sessionUserId) return;
+
+    void flushOutbox({ userId: sessionUserId }).catch(() => undefined);
+  }, [finished, sessionUserId]);
 
   const next = (kind: SessionItem["kind"]) => {
     setState((previous) => {

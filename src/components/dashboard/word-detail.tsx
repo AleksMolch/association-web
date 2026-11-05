@@ -31,6 +31,11 @@ import {
 } from "@/features/contributions/consent-preferences";
 import { ConsentDialog } from "@/features/contributions/components/consent-dialog";
 import {
+  clearPendingOutbox,
+  enqueueContribution,
+  flushOutbox,
+} from "@/features/contributions/outbox";
+import {
   getContributionPreference,
   putContributionPreference,
   type ContributionPreference,
@@ -41,7 +46,11 @@ import { MnemonicEditor } from "@/features/user-mnemonics/components/mnemonic-ed
 import { deleteLocalImage } from "@/features/user-mnemonics/image-local-store";
 import { useSession } from "@/lib/auth-client";
 import { formatNextReview, stateLabel } from "@/lib/fsrs";
-import { useGuest } from "@/lib/guest-store";
+import {
+  useGuest,
+  type CreateUserMnemonicInput,
+  type UpdateUserMnemonicPatch,
+} from "@/lib/guest-store";
 import { speakEnglish } from "@/lib/speech";
 import { cn } from "@/lib/utils";
 
@@ -179,6 +188,32 @@ export function WordDetail({
     setEditor(null);
   };
 
+  function enqueueSavedMnemonic(saved: UserMnemonic) {
+    const local = settingsRef.current;
+
+    enqueueContribution(saved, {
+      userId: sessionUserId,
+      authenticated,
+      consentStatus: local.contributionConsent,
+      consentVersion: local.contributionConsentVersion,
+    });
+  }
+
+  function createQueuedMnemonic(input: CreateUserMnemonicInput) {
+    const saved = createUserMnemonic(input);
+    enqueueSavedMnemonic(saved);
+    return saved;
+  }
+
+  function updateQueuedMnemonic(
+    id: string,
+    patch: UpdateUserMnemonicPatch,
+  ) {
+    const saved = updateUserMnemonic(id, patch);
+    if (saved) enqueueSavedMnemonic(saved);
+    return saved;
+  }
+
   function applyConsent(action: ConsentAction) {
     const version = consentActionVersionRef.current + 1;
     consentActionVersionRef.current = version;
@@ -195,6 +230,12 @@ export function WordDetail({
       contributionNextPromptAt: next.contributionNextPromptAt,
       contributionPromptAfterCount: next.contributionPromptAfterCount,
     });
+
+    if (action === "withdraw" || action === "decline") {
+      clearPendingOutbox({ userId: sessionUserId });
+    } else if (action === "grant" && sessionUserId) {
+      void flushOutbox({ userId: sessionUserId });
+    }
 
     if (!authenticated) return;
 
@@ -344,8 +385,8 @@ export function WordDetail({
             wordId={word.id}
             meaningId="0"
             mnemonic={editor.kind === "edit" ? editor.mnemonic : null}
-            createUserMnemonic={createUserMnemonic}
-            updateUserMnemonic={updateUserMnemonic}
+            createUserMnemonic={createQueuedMnemonic}
+            updateUserMnemonic={updateQueuedMnemonic}
             setLocalMediaMeta={setLocalMediaMeta}
             deleteLocalMediaMeta={deleteLocalMediaMeta}
             onCancel={closeEditor}
