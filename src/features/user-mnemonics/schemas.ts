@@ -52,7 +52,7 @@ export const contributionConsentSchema = z.enum([
 export const contributionInputSchema = z
   .object({
     clientContributionId: z.string().uuid(),
-    sourceMnemonicId: z.string().uuid(),
+    sourceMnemonicId: z.string().min(1).max(128),
     wordId: z.number().int().positive(),
     meaningId: z.string().min(1).max(32),
     cueWord: z.string().trim().min(1).max(80),

@@ -130,17 +130,32 @@ describe("contributionInputSchema", () => {
     },
   );
 
-  it("отклоняет невалидные идентификаторы", () => {
+  it("отклоняет невалидный clientContributionId", () => {
     expect(
       contributionInputSchema.safeParse({
         ...validContribution,
         clientContributionId: "not-a-uuid",
       }).success,
     ).toBe(false);
+  });
+
+  it("принимает локальный sourceMnemonicId мобильного клиента", () => {
     expect(
       contributionInputSchema.safeParse({
         ...validContribution,
-        sourceMnemonicId: "not-a-uuid",
+        sourceMnemonicId: "usr-1a2b3c4d-5e6f",
+      }).success,
+    ).toBe(true);
+    expect(
+      contributionInputSchema.safeParse({
+        ...validContribution,
+        sourceMnemonicId: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      contributionInputSchema.safeParse({
+        ...validContribution,
+        sourceMnemonicId: "u".repeat(129),
       }).success,
     ).toBe(false);
   });
