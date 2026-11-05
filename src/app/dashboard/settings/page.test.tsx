@@ -352,7 +352,7 @@ describe("Настройки → Конфиденциальность", () => {
         }),
       ),
     );
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(mocks.updateSettings).not.toHaveBeenCalledWith(
       expect.objectContaining({ contributionNextPromptAt: firstDate }),

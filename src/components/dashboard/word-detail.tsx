@@ -26,10 +26,15 @@ import {
 import {
   applyConsentAction,
   applyPreferenceToSettings,
+  reconcileConsentPreference,
   shouldPromptForSettings,
 } from "@/features/contributions/consent-preferences";
 import { ConsentDialog } from "@/features/contributions/components/consent-dialog";
-import { putContributionPreference } from "@/features/contributions/preference-client";
+import {
+  getContributionPreference,
+  putContributionPreference,
+  type ContributionPreference,
+} from "@/features/contributions/preference-client";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 import { LocalImage } from "@/features/user-mnemonics/components/local-image";
 import { MnemonicEditor } from "@/features/user-mnemonics/components/mnemonic-editor";
@@ -71,23 +76,43 @@ export function WordDetail({
     deleteLocalMediaMeta,
   } = useGuest();
   const { data: session } = useSession();
+  const sessionUserId = session?.user?.id ?? null;
   const [manualEditor, setEditor] = useState<EditorState>(null);
   const [initialEditClosed, setInitialEditClosed] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [mediaVersion, setMediaVersion] = useState(0);
   const [consentDismissed, setConsentDismissed] = useState(false);
+  const [consentOpen, setConsentOpen] = useState(false);
+  const [preferenceUserId, setPreferenceUserId] = useState<string | null>(null);
+  const [appliedServerPreference, setAppliedServerPreference] = useState<{
+    userId: string;
+    preference: ContributionPreference;
+  } | null>(null);
   const settingsRef = useRef(settings);
   const consentActionVersionRef = useRef(0);
   const authenticated = Boolean(session?.user);
-  const promptDue =
+  const preferenceLoading =
+    Boolean(sessionUserId) && preferenceUserId !== sessionUserId;
+  const effectiveSettings =
+    appliedServerPreference?.userId === sessionUserId
+      ? applyPreferenceToSettings(
+          settings,
+          appliedServerPreference.preference,
+        )
+      : settings;
+  const promptEligible =
     Boolean(word) &&
+    !preferenceLoading &&
     !consentDismissed &&
-    shouldPromptForSettings(settings, {
+    shouldPromptForSettings(effectiveSettings, {
       authenticated,
       shownThisSession: consentPromptShown,
       now: new Date(),
     });
-  const consentOpen = !consentDismissed && promptDue;
+
+  if (promptEligible && !consentOpen) {
+    setConsentOpen(true);
+  }
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -95,10 +120,50 @@ export function WordDetail({
 
   useEffect(() => {
     if (!consentOpen) return;
-    return () => {
-      markConsentPromptShown();
-    };
+    markConsentPromptShown();
   }, [consentOpen, markConsentPromptShown]);
+
+  useEffect(() => {
+    if (!sessionUserId) return;
+
+    let active = true;
+
+    getContributionPreference()
+      .then((preference) => {
+        if (!active) return;
+
+        const local = settingsRef.current;
+
+        if (
+          reconcileConsentPreference(
+            local.contributionConsent,
+            preference.status,
+          ) === "apply_server"
+        ) {
+          const applied = applyPreferenceToSettings(local, preference);
+          settingsRef.current = applied;
+          updateSettings({
+            contributionConsent: applied.contributionConsent,
+            contributionConsentVersion: applied.contributionConsentVersion,
+            contributionNextPromptAt: applied.contributionNextPromptAt,
+          });
+          setAppliedServerPreference({
+            userId: sessionUserId,
+            preference,
+          });
+        }
+
+        setPreferenceUserId(sessionUserId);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPreferenceUserId(sessionUserId);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sessionUserId, updateSettings]);
 
   const initialMnemonic = initialEditId && !initialEditClosed
     ? activeUserMnemonics[initialEditId]
@@ -118,6 +183,8 @@ export function WordDetail({
     const version = consentActionVersionRef.current + 1;
     consentActionVersionRef.current = version;
     setConsentDismissed(true);
+    setConsentOpen(false);
+    setAppliedServerPreference(null);
     markConsentPromptShown();
 
     const next = applyConsentAction(settingsRef.current, action, new Date());

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { StrictMode, useState } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -120,8 +121,8 @@ beforeEach(() => {
       ok: true,
       status: 200,
       json: async () => ({
-        status: "granted",
-        consentVersion: CONSENT_VERSION,
+        status: "unset",
+        consentVersion: null,
         decidedAt: null,
         nextPromptAt: null,
       }),
@@ -373,6 +374,25 @@ describe("WordDetail consent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
   }
 
+  function stubServerPreference(
+    status: string,
+    nextPromptAt: string | null = null,
+  ) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status,
+          consentVersion: status === "unset" ? null : CONSENT_VERSION,
+          decidedAt: null,
+          nextPromptAt,
+        }),
+      })),
+    );
+  }
+
   it("увеличивает счётчик только после полного успешного создания", async () => {
     const guest = renderDetail({
       settings: { ...defaultSettings, userMnemonicCreatedCount: 2 },
@@ -441,6 +461,110 @@ describe("WordDetail consent", () => {
       expect.objectContaining({ contributionConsent: "ask_later" }),
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("не показывает диалог, пока серверная настройка загружается", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+    let resolve!: (response: Response) => void;
+    const request = new Promise<Response>((next) => {
+      resolve = next;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => request));
+
+    renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    resolve({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: "unset",
+        consentVersion: null,
+        decidedAt: null,
+        nextPromptAt: null,
+      }),
+    } as Response);
+
+    expect(
+      await screen.findByRole("dialog", { name: CONSENT_COPY.title }),
+    ).toBeTruthy();
+  });
+
+  it.each(["granted", "declined", "withdrawn"] as const)(
+    "не показывает диалог, если на сервере уже статус %s",
+    async (status) => {
+      mocks.session.current = {
+        data: { user: { id: "user-a" } },
+        isPending: false,
+      };
+      stubServerPreference(status);
+      const guest = renderDetail({
+        settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+      });
+
+      await waitFor(() =>
+        expect(guest.updateSettings).toHaveBeenCalledWith(
+          expect.objectContaining({ contributionConsent: status }),
+        ),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
+
+  it("не показывает диалог для серверного ask_later до срока", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+    stubServerPreference("ask_later", "2999-01-01T00:00:00.000Z");
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    await waitFor(() =>
+      expect(guest.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ contributionConsent: "ask_later" }),
+      ),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("не закрывает диалог под StrictMode после отметки о показе", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+
+    function Harness() {
+      const [shown, setShown] = useState(false);
+      mocks.guest.current = makeGuest({
+        settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+        consentPromptShown: shown,
+        markConsentPromptShown: vi.fn(() => setShown(true)),
+      });
+      return <WordDetail wordId={word.id} />;
+    }
+
+    render(
+      <StrictMode>
+        <Harness />
+      </StrictMode>,
+    );
+
+    expect(
+      await screen.findByRole("dialog", { name: CONSENT_COPY.title }),
+    ).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(
+      screen.getByRole("dialog", { name: CONSENT_COPY.title }),
+    ).toBeTruthy();
   });
 
   it("не повторяет диалог, если он уже показан в этой сессии", () => {
