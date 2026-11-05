@@ -27,8 +27,8 @@ export async function GET(request: Request) {
       .limit(1);
 
     return NextResponse.json({ ...overview, payment: rows[0] ?? null });
-  } catch (error) {
-    console.error("[billing:status]", error);
+  } catch {
+    console.error("[billing:status] request failed");
     return NextResponse.json({ error: "BILLING_UNAVAILABLE" }, { status: 503 });
   }
 }

@@ -45,8 +45,8 @@ export async function POST(request: Request) {
       await applyProviderPaymentStatus(object.id, object.status);
     }
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("[billing:webhook]", error);
+  } catch {
+    console.error("[billing:webhook] request failed");
     return NextResponse.json({ error: "WEBHOOK_FAILED" }, { status: 500 });
   }
 }

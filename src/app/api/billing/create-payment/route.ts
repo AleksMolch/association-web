@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     if (error instanceof BillingConfigError) {
       return NextResponse.json({ error: "BILLING_NOT_CONFIGURED" }, { status: 503 });
     }
-    console.error("[billing:create-payment]", error);
+    console.error("[billing:create-payment] request failed");
     return NextResponse.json({ error: "PAYMENT_FAILED" }, { status: 502 });
   }
 }
