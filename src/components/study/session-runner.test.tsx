@@ -295,4 +295,21 @@ describe("SessionRunner personal mnemonics", () => {
       `/dashboard/words/${word.id}?edit=${mnemonic.id}`,
     );
   });
+
+  it("не показывает диалог согласия во время занятия", () => {
+    const { state } = buildState();
+
+    renderRunner(
+      { kind: "review", wordId: word.id },
+      makeGuest(state, {
+        settings: {
+          ...defaultSettings,
+          contributionConsent: "unset",
+          userMnemonicCreatedCount: 3,
+        },
+      }),
+    );
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
 });

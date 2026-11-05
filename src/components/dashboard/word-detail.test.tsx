@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { words } from "@/content";
+import { CONSENT_COPY, CONSENT_VERSION } from "@/features/contributions/consent";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 import { defaultSettings } from "@/lib/types";
 
@@ -19,10 +20,17 @@ const mocks = vi.hoisted(() => ({
     error: vi.fn(),
   },
   guest: { current: {} as Record<string, unknown> },
+  session: {
+    current: { data: null as { user: { id: string } } | null, isPending: false },
+  },
 }));
 
 vi.mock("@/lib/guest-store", () => ({
   useGuest: () => mocks.guest.current,
+}));
+
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => mocks.session.current,
 }));
 
 vi.mock("@/features/user-mnemonics/image-local-store", () => ({
@@ -80,6 +88,9 @@ function makeGuest(overrides: Record<string, unknown> = {}) {
     stats: {},
     session: [],
     updateSettings: vi.fn(),
+    consentPromptShown: false,
+    markConsentPromptShown: vi.fn(),
+    markUserMnemonicCreated: vi.fn(),
     selectMnemonic: vi.fn(() => true),
     createUserMnemonic: vi.fn(),
     updateUserMnemonic: vi.fn(),
@@ -102,6 +113,20 @@ function renderDetail(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.session.current = { data: null, isPending: false };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        status: "granted",
+        consentVersion: CONSENT_VERSION,
+        decidedAt: null,
+        nextPromptAt: null,
+      }),
+    })),
+  );
   mocks.getLocalImage.mockResolvedValue(null);
   mocks.putLocalImage.mockResolvedValue(null);
   mocks.deleteLocalImage.mockResolvedValue(undefined);
@@ -118,6 +143,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe("WordDetail personal variants", () => {
@@ -330,5 +356,159 @@ describe("WordDetail personal variants", () => {
     expect(screen.getByText(injected.sceneText)).toBeTruthy();
     expect(container.querySelector("script")).toBeNull();
     expect(container.querySelector('img[src="x"]')).toBeNull();
+  });
+});
+
+describe("WordDetail consent", () => {
+  function submitNewVariant(cueWord = "Новый ключ") {
+    fireEvent.click(
+      screen.getByRole("button", { name: "+ Добавить свой вариант" }),
+    );
+    fireEvent.change(screen.getByLabelText("Созвучие"), {
+      target: { value: cueWord },
+    });
+    fireEvent.change(screen.getByLabelText("Сцена"), {
+      target: { value: "Новая сцена с братом" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+  }
+
+  it("увеличивает счётчик только после полного успешного создания", async () => {
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 2 },
+      createUserMnemonic: vi.fn(() => ({ ...userMnemonic, id: "usr-new" })),
+    });
+
+    submitNewVariant();
+
+    await waitFor(() =>
+      expect(guest.markUserMnemonicCreated).toHaveBeenCalledTimes(1),
+    );
+    expect(mocks.toast.success).toHaveBeenCalled();
+  });
+
+  it("не увеличивает счётчик, если изображение не сохранилось", async () => {
+    mocks.putLocalImage.mockRejectedValue(
+      new Error("Не удалось записать изображение"),
+    );
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 2 },
+      createUserMnemonic: vi.fn(() => ({ ...userMnemonic, id: "usr-new" })),
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "+ Добавить свой вариант" }),
+    );
+    fireEvent.change(screen.getByLabelText("Изображение (необязательно)"), {
+      target: {
+        files: [new File(["image"], "scene.png", { type: "image/png" })],
+      },
+    });
+    fireEvent.change(screen.getByLabelText("Созвучие"), {
+      target: { value: "Новый ключ" },
+    });
+    fireEvent.change(screen.getByLabelText("Сцена"), {
+      target: { value: "Новая сцена с братом" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить" }));
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        expect.stringContaining("Текст сохранён"),
+      ),
+    );
+    expect(guest.markUserMnemonicCreated).not.toHaveBeenCalled();
+  });
+
+  it("показывает диалог после третьей ассоциации и закрывает его по «Не сейчас»", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    expect(
+      await screen.findByRole("dialog", { name: CONSENT_COPY.title }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: CONSENT_COPY.declineButton }),
+    );
+
+    expect(guest.markConsentPromptShown).toHaveBeenCalled();
+    expect(guest.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ contributionConsent: "ask_later" }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("не повторяет диалог, если он уже показан в этой сессии", () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+    renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+      consentPromptShown: true,
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("сохраняет отказ навсегда из подробностей", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-a" } },
+      isPending: false,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body)) as {
+          status: string;
+          consentVersion: string;
+        };
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            status: body.status,
+            consentVersion: body.consentVersion,
+            decidedAt: null,
+            nextPromptAt: null,
+          }),
+        };
+      }),
+    );
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    await screen.findByRole("dialog", { name: CONSENT_COPY.title });
+    fireEvent.click(
+      screen.getByRole("button", { name: CONSENT_COPY.detailLink }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: CONSENT_COPY.detailDeclineButton }),
+    );
+
+    expect(guest.updateSettings).toHaveBeenCalledWith({
+      contributionConsent: "declined",
+      contributionConsentVersion: CONSENT_VERSION,
+      contributionNextPromptAt: null,
+      contributionPromptAfterCount: null,
+    });
+  });
+
+  it("показывает подсказку о регистрации без блокирующего диалога", () => {
+    renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    expect(
+      screen.getByText(CONSENT_COPY.registrationHintTitle),
+    ).toBeTruthy();
+    expect(screen.getByText(CONSENT_COPY.registrationHintBody)).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

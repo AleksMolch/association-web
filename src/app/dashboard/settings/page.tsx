@@ -8,11 +8,29 @@
  */
 
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  CONSENT_COPY,
+  CONSENT_VERSION,
+  type ConsentAction,
+} from "@/features/contributions/consent";
+import {
+  applyConsentAction,
+  applyPreferenceToSettings,
+  reconcileConsentPreference,
+} from "@/features/contributions/consent-preferences";
+import {
+  ContributionPreferenceError,
+  getContributionPreference,
+  putContributionPreference,
+  type ContributionPreference,
+} from "@/features/contributions/preference-client";
+import { useSession } from "@/lib/auth-client";
 import { useGuest } from "@/lib/guest-store";
 import type { Settings } from "@/lib/types";
 
@@ -48,6 +66,129 @@ function Toggle({
 
 export default function DashboardSettingsPage() {
   const { ready, settings, stats, updateSettings, reset } = useGuest();
+  const { data: session } = useSession();
+  const sessionUserId = session?.user?.id ?? null;
+  const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
+  const decisionVersionRef = useRef(0);
+  const settingsRef = useRef(settings);
+  const loading = Boolean(sessionUserId) && loadedUserId !== sessionUserId;
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    if (!ready || !sessionUserId) return;
+
+    let active = true;
+    const versionAtStart = decisionVersionRef.current;
+
+    const applyPreference = (preference: ContributionPreference) => {
+      const applied = applyPreferenceToSettings(
+        settingsRef.current,
+        preference,
+      );
+      settingsRef.current = applied;
+      updateSettings({
+        contributionConsent: applied.contributionConsent,
+        contributionConsentVersion: applied.contributionConsentVersion,
+        contributionNextPromptAt: applied.contributionNextPromptAt,
+      });
+    };
+
+    getContributionPreference()
+      .then((preference) => {
+        if (!active || decisionVersionRef.current !== versionAtStart) return;
+
+        setLoadedUserId(sessionUserId);
+
+        const reconciliation = reconcileConsentPreference(
+          settingsRef.current.contributionConsent,
+          preference.status,
+        );
+
+        if (reconciliation === "apply_server") {
+          applyPreference(preference);
+          return;
+        }
+
+        if (reconciliation === "keep_local") return;
+
+        const local = settingsRef.current;
+        void putContributionPreference({
+          status: local.contributionConsent,
+          consentVersion:
+            local.contributionConsentVersion ?? CONSENT_VERSION,
+        })
+          .then((saved) => {
+            if (
+              !active ||
+              decisionVersionRef.current !== versionAtStart
+            ) {
+              return;
+            }
+            applyPreference(saved);
+          })
+          .catch(() => {
+            if (!active) return;
+            toast.error(
+              "Не удалось сохранить локальное решение на сервере.",
+            );
+          });
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setLoadedUserId(sessionUserId);
+        toast.error(
+          error instanceof ContributionPreferenceError &&
+            error.status === 401
+            ? "Сессия истекла. Войдите снова, чтобы загрузить настройку."
+            : "Не удалось загрузить настройку с сервера. Показано локальное решение.",
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [ready, sessionUserId, updateSettings]);
+
+  function applyConsent(action: ConsentAction) {
+    const version = decisionVersionRef.current + 1;
+    decisionVersionRef.current = version;
+    if (sessionUserId) setLoadedUserId(sessionUserId);
+
+    const next = applyConsentAction(settingsRef.current, action, new Date());
+    settingsRef.current = next;
+    updateSettings({
+      contributionConsent: next.contributionConsent,
+      contributionConsentVersion: next.contributionConsentVersion,
+      contributionNextPromptAt: next.contributionNextPromptAt,
+      contributionPromptAfterCount: next.contributionPromptAfterCount,
+    });
+
+    if (!sessionUserId) return;
+
+    void putContributionPreference({
+      status: next.contributionConsent,
+      consentVersion: next.contributionConsentVersion ?? CONSENT_VERSION,
+    })
+      .then((saved) => {
+        if (decisionVersionRef.current !== version) return;
+        const applied = applyPreferenceToSettings(settingsRef.current, saved);
+        settingsRef.current = applied;
+        updateSettings({
+          contributionConsent: applied.contributionConsent,
+          contributionConsentVersion: applied.contributionConsentVersion,
+          contributionNextPromptAt: applied.contributionNextPromptAt,
+        });
+      })
+      .catch(() => {
+        if (decisionVersionRef.current !== version) return;
+        toast.error(
+          "Не удалось сохранить настройку на сервере. Решение сохранено на этом устройстве.",
+        );
+      });
+  }
 
   if (!ready) return <p className="text-sm text-muted">Загружаем настройки…</p>;
 
@@ -112,6 +253,57 @@ export default function DashboardSettingsPage() {
               {rate === 1.1 ? "быстро" : rate === 0.8 ? "медленно" : "обычно"}
             </Button>
           ))}
+        </div>
+      </Card>
+
+      <Card className="space-y-3">
+        <CardHeader>
+          <CardTitle>Конфиденциальность</CardTitle>
+          <CardDescription>Улучшение сервиса</CardDescription>
+        </CardHeader>
+        <div className="rounded-xl border border-line p-4">
+          <div className="flex items-start justify-between gap-4">
+            <span>
+              <span className="block text-sm font-semibold text-ink">
+                {CONSENT_COPY.settingsTitle}
+              </span>
+              <span className="mt-0.5 block text-xs text-muted">
+                {CONSENT_COPY.settingsDescription}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label={CONSENT_COPY.settingsTitle}
+              checked={settings.contributionConsent === "granted"}
+              disabled={loading}
+              onChange={(event) =>
+                applyConsent(event.target.checked ? "grant" : "withdraw")
+              }
+              className="mt-1 size-5 accent-[var(--color-primary)]"
+            />
+          </div>
+          {loading ? (
+            <p className="mt-2 text-xs text-muted">
+              Загружаем настройку с сервера…
+            </p>
+          ) : null}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {settings.contributionConsent === "unset" ||
+            settings.contributionConsent === "ask_later" ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={loading}
+                onClick={() => applyConsent("decline")}
+              >
+                {CONSENT_COPY.detailDeclineButton}
+              </Button>
+            ) : null}
+            <Button variant="ghost" size="sm" disabled>
+              Удалить ранее переданные варианты
+            </Button>
+          </div>
         </div>
       </Card>
 

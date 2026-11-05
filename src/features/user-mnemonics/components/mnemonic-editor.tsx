@@ -42,6 +42,7 @@ export type MnemonicEditorProps = {
   deleteLocalMediaMeta: (mnemonicId: string) => void;
   onCancel: () => void;
   onSaved?: (mnemonic: UserMnemonic) => void;
+  onCreated?: (mnemonic: UserMnemonic) => void;
 };
 
 type FieldErrors = {
@@ -59,6 +60,7 @@ export function MnemonicEditor({
   deleteLocalMediaMeta,
   onCancel,
   onSaved,
+  onCreated,
 }: MnemonicEditorProps) {
   const [cueWord, setCueWord] = useState(mnemonic?.cueWord ?? "");
   const [sceneText, setSceneText] = useState(mnemonic?.sceneText ?? "");
@@ -220,6 +222,8 @@ export function MnemonicEditor({
         onSaved?.(saved);
         return;
       }
+
+      if (!mnemonic) onCreated?.(saved);
 
       toast.success(
         mnemonic ? "Личный вариант обновлён" : "Личный вариант добавлен",

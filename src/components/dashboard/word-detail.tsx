@@ -9,7 +9,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Check, Volume2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,10 +18,23 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { getWord, imageUrl, primaryMnemonic } from "@/content";
+import {
+  CONSENT_COPY,
+  CONSENT_VERSION,
+  type ConsentAction,
+} from "@/features/contributions/consent";
+import {
+  applyConsentAction,
+  applyPreferenceToSettings,
+  shouldPromptForSettings,
+} from "@/features/contributions/consent-preferences";
+import { ConsentDialog } from "@/features/contributions/components/consent-dialog";
+import { putContributionPreference } from "@/features/contributions/preference-client";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 import { LocalImage } from "@/features/user-mnemonics/components/local-image";
 import { MnemonicEditor } from "@/features/user-mnemonics/components/mnemonic-editor";
 import { deleteLocalImage } from "@/features/user-mnemonics/image-local-store";
+import { useSession } from "@/lib/auth-client";
 import { formatNextReview, stateLabel } from "@/lib/fsrs";
 import { useGuest } from "@/lib/guest-store";
 import { speakEnglish } from "@/lib/speech";
@@ -46,6 +59,10 @@ export function WordDetail({
     cardByWord,
     preferred,
     activeUserMnemonics,
+    consentPromptShown,
+    updateSettings,
+    markConsentPromptShown,
+    markUserMnemonicCreated,
     selectMnemonic,
     createUserMnemonic,
     updateUserMnemonic,
@@ -53,10 +70,35 @@ export function WordDetail({
     setLocalMediaMeta,
     deleteLocalMediaMeta,
   } = useGuest();
+  const { data: session } = useSession();
   const [manualEditor, setEditor] = useState<EditorState>(null);
   const [initialEditClosed, setInitialEditClosed] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [mediaVersion, setMediaVersion] = useState(0);
+  const [consentDismissed, setConsentDismissed] = useState(false);
+  const settingsRef = useRef(settings);
+  const consentActionVersionRef = useRef(0);
+  const authenticated = Boolean(session?.user);
+  const promptDue =
+    Boolean(word) &&
+    !consentDismissed &&
+    shouldPromptForSettings(settings, {
+      authenticated,
+      shownThisSession: consentPromptShown,
+      now: new Date(),
+    });
+  const consentOpen = !consentDismissed && promptDue;
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    if (!consentOpen) return;
+    return () => {
+      markConsentPromptShown();
+    };
+  }, [consentOpen, markConsentPromptShown]);
 
   const initialMnemonic = initialEditId && !initialEditClosed
     ? activeUserMnemonics[initialEditId]
@@ -71,6 +113,44 @@ export function WordDetail({
     setInitialEditClosed(true);
     setEditor(null);
   };
+
+  function applyConsent(action: ConsentAction) {
+    const version = consentActionVersionRef.current + 1;
+    consentActionVersionRef.current = version;
+    setConsentDismissed(true);
+    markConsentPromptShown();
+
+    const next = applyConsentAction(settingsRef.current, action, new Date());
+    settingsRef.current = next;
+    updateSettings({
+      contributionConsent: next.contributionConsent,
+      contributionConsentVersion: next.contributionConsentVersion,
+      contributionNextPromptAt: next.contributionNextPromptAt,
+      contributionPromptAfterCount: next.contributionPromptAfterCount,
+    });
+
+    if (!authenticated) return;
+
+    void putContributionPreference({
+      status: next.contributionConsent,
+      consentVersion: next.contributionConsentVersion ?? CONSENT_VERSION,
+    })
+      .then((saved) => {
+        if (consentActionVersionRef.current !== version) return;
+        const applied = applyPreferenceToSettings(settingsRef.current, saved);
+        settingsRef.current = applied;
+        updateSettings({
+          contributionConsent: applied.contributionConsent,
+          contributionConsentVersion: applied.contributionConsentVersion,
+          contributionNextPromptAt: applied.contributionNextPromptAt,
+        });
+      })
+      .catch(() => {
+        toast.error(
+          "Не удалось сохранить настройку на сервере. Решение сохранено на этом устройстве.",
+        );
+      });
+  }
 
   if (!word) {
     return (
@@ -87,6 +167,11 @@ export function WordDetail({
   const card = cardByWord.get(activeWord.id);
   const activeId = preferred.get(activeWord.id);
   const mode = card ? "replace" : "initial";
+  const showRegistrationHint =
+    !authenticated &&
+    settings.userMnemonicCreatedCount >= 3 &&
+    (settings.contributionConsent === "unset" ||
+      settings.contributionConsent === "ask_later");
   const userVariants = Object.values(activeUserMnemonics)
     .filter((mnemonic) => mnemonic.wordId === activeWord.id)
     .sort(
@@ -197,6 +282,7 @@ export function WordDetail({
             setLocalMediaMeta={setLocalMediaMeta}
             deleteLocalMediaMeta={deleteLocalMediaMeta}
             onCancel={closeEditor}
+            onCreated={markUserMnemonicCreated}
             onSaved={() => {
               setMediaVersion((version) => version + 1);
               closeEditor();
@@ -340,6 +426,32 @@ export function WordDetail({
           })}
         </div>
       </section>
+
+      {showRegistrationHint && (
+        <Card className="space-y-3">
+          <CardHeader>
+            <CardTitle className="text-lg">
+              {CONSENT_COPY.registrationHintTitle}
+            </CardTitle>
+            <CardDescription>
+              {CONSENT_COPY.registrationHintBody}
+            </CardDescription>
+          </CardHeader>
+          <Link
+            href="/login"
+            className={buttonVariants({
+              variant: "secondary",
+              className: "w-fit",
+            })}
+          >
+            Войти
+          </Link>
+        </Card>
+      )}
+
+      {consentOpen ? (
+        <ConsentDialog open onAction={applyConsent} />
+      ) : null}
     </div>
   );
 }

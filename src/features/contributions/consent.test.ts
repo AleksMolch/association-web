@@ -211,12 +211,36 @@ describe("shouldPrompt", () => {
     ).toBe(false);
   });
 
-  it("не показывает ask_later без порога по числу созданий", () => {
+  it("показывает ask_later по одной дате, если сервер не передал порог", () => {
     expect(
       prompt({
         status: "ask_later",
         createdCount: 9,
         nextPromptAt: THIRTY_DAYS_LATER,
+        promptAfterCount: null,
+        now: new Date("2027-01-01T00:00:00.000Z"),
+      }),
+    ).toBe(true);
+  });
+
+  it("не показывает ask_later по одной дате до наступления срока", () => {
+    expect(
+      prompt({
+        status: "ask_later",
+        createdCount: 9,
+        nextPromptAt: THIRTY_DAYS_LATER,
+        promptAfterCount: null,
+        now: new Date("2026-12-05T11:59:59.999Z"),
+      }),
+    ).toBe(false);
+  });
+
+  it("не показывает ask_later по одной дате при повреждённой дате", () => {
+    expect(
+      prompt({
+        status: "ask_later",
+        createdCount: 9,
+        nextPromptAt: "not-a-date",
         promptAfterCount: null,
         now: new Date("2027-01-01T00:00:00.000Z"),
       }),

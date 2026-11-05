@@ -14,9 +14,11 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useState,
   useSyncExternalStore,
 } from "react";
 
+import { recordMnemonicCreation } from "@/features/contributions/consent-preferences";
 import type {
   LocalMnemonicMedia,
   UserMnemonic,
@@ -509,7 +511,10 @@ type GuestContextValue = {
   newWords: Word[];
   stats: AppStats;
   session: SessionItem[];
+  consentPromptShown: boolean;
   updateSettings: (patch: Partial<Settings>) => void;
+  markConsentPromptShown: () => void;
+  markUserMnemonicCreated: () => void;
   selectMnemonic: (wordId: number, mnemonicId: string, mode: "initial" | "replace") => boolean;
   createUserMnemonic: (input: CreateUserMnemonicInput) => UserMnemonic;
   updateUserMnemonic: (
@@ -534,6 +539,7 @@ const GuestContext = createContext<GuestContextValue | null>(null);
 export function GuestProvider({ children }: { children: React.ReactNode }) {
   const state = useSyncExternalStore(subscribe, getClientSnapshot, getServerSnapshot);
   const ready = useSyncExternalStore(subscribe, getReady, getNotReady);
+  const [consentPromptShown, setConsentPromptShown] = useState(false);
 
   useEffect(() => {
     if (!ready) return;
@@ -568,6 +574,18 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
     updateState((prev) => ({
       ...prev,
       settings: { ...prev.settings, ...patch },
+      updatedAt: new Date().toISOString(),
+    }));
+  }, []);
+
+  const markConsentPromptShown = useCallback(() => {
+    setConsentPromptShown(true);
+  }, []);
+
+  const markUserMnemonicCreated = useCallback(() => {
+    updateState((prev) => ({
+      ...prev,
+      settings: recordMnemonicCreation(prev.settings),
       updatedAt: new Date().toISOString(),
     }));
   }, []);
@@ -690,7 +708,10 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       newWords,
       stats,
       session,
+      consentPromptShown,
       updateSettings,
+      markConsentPromptShown,
+      markUserMnemonicCreated,
       selectMnemonic,
       createUserMnemonic,
       updateUserMnemonic,
@@ -715,7 +736,10 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
       newWords,
       stats,
       session,
+      consentPromptShown,
       updateSettings,
+      markConsentPromptShown,
+      markUserMnemonicCreated,
       selectMnemonic,
       createUserMnemonic,
       updateUserMnemonic,

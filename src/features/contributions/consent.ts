@@ -63,6 +63,13 @@ export const CONSENT_COPY = {
   settingsTitle: "Делиться текстом моих ассоциаций",
   settingsDescription:
     "Передаются только созвучие и описание сцены вместе с идентификатором слова. Изображения не передаются.",
+  detailTitle: "Что передаётся",
+  detailBody:
+    "Передаются только созвучие и описание сцены вместе с идентификатором слова. Картинки, имена файлов и данные изображения не передаются. Участие добровольное: новые варианты отправляются только при включённой настройке, а согласие можно отозвать в любое время.",
+  detailDeclineButton: "Больше не предлагать",
+  registrationHintTitle: "Помогите улучшить Association",
+  registrationHintBody:
+    "Войдите в аккаунт, чтобы добровольно делиться текстом своих ассоциаций. Картинки, имена файлов и данные изображения не передаются.",
 } as const;
 
 /**
@@ -100,6 +107,10 @@ export function nextConsentState(
  * Показ возможен только авторизованному пользователю, которому диалог ещё
  * не показывали в этой сессии, после третьей созданной ассоциации. Для
  * `ask_later` дополнительно должны пройти 30 дней и порог числа созданий.
+ *
+ * Серверная настройка хранит только `nextPromptAt` и не знает локальный
+ * счётчик. Поэтому `promptAfterCount === null` означает «только дата»:
+ * диалог показывается после `nextPromptAt`, а не блокируется навсегда.
  */
 export function shouldPrompt({
   createdCount,
@@ -114,10 +125,12 @@ export function shouldPrompt({
   if (createdCount < MIN_CREATED_COUNT) return false;
   if (status === "unset") return true;
   if (status !== "ask_later") return false;
-  if (nextPromptAt === null || promptAfterCount === null) return false;
+  if (nextPromptAt === null) return false;
 
   const nextPromptMs = Date.parse(nextPromptAt);
   if (!Number.isFinite(nextPromptMs)) return false;
+  if (now.getTime() < nextPromptMs) return false;
+  if (promptAfterCount === null) return true;
 
-  return now.getTime() >= nextPromptMs && createdCount >= promptAfterCount;
+  return createdCount >= promptAfterCount;
 }
