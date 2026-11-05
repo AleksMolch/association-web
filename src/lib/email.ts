@@ -6,24 +6,14 @@
  * EMAIL_FROM либо замените провайдера.
  */
 
+import { maskEmail, redactEmails } from "@/lib/redact";
+
 type EmailInput = {
   to: string;
   subject: string;
   text: string;
   html?: string;
 };
-
-const EMAIL_LIKE = /[^\s@]+@[^\s@]+\.[^\s@]+/g;
-
-function maskEmail(value: string): string {
-  const at = value.lastIndexOf("@");
-  if (at <= 0) return "[redacted]";
-  return `${value.slice(0, 1)}***@${value.slice(at + 1)}`;
-}
-
-function redactEmails(value: string): string {
-  return value.replace(EMAIL_LIKE, (email) => maskEmail(email));
-}
 
 export async function sendEmail({ to, subject, text, html }: EmailInput): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;

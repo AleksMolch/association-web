@@ -5,6 +5,8 @@
  * из тарифа в plans.ts.
  */
 
+import { redactEmails } from "@/lib/redact";
+
 const API_URL = process.env.YOOKASSA_API_URL ?? "https://api.yookassa.ru/v3";
 
 export class BillingConfigError extends Error {}
@@ -51,7 +53,11 @@ export async function createYooKassaPayment(input: {
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
-    console.error("[yookassa] create payment failed", response.status, detail.slice(0, 300));
+    console.error(
+      "[yookassa] create payment failed",
+      response.status,
+      redactEmails(detail).slice(0, 300),
+    );
     throw new Error("Не удалось создать платёж");
   }
 

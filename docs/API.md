@@ -66,6 +66,7 @@
 - личные ассоциации — по `rev`/`updatedAt`, tombstone побеждает активную при равенстве;
 - выборы и настройки — last-write-wins по `updatedAt`;
 - отзывы вставляются идемпотентно;
+- схема legacy-прогресса нестрогая: неизвестные верхнеуровневые ключи игнорируются, вложенная `userMnemonics` строгая;
 - ответ — актуальное состояние, как у `GET`.
 
 Коды: `400 INVALID_BODY`, `401 UNAUTHORIZED`, `503 SYNC_FAILED`.
@@ -164,7 +165,7 @@
 { "sourceMnemonicIds": ["usr-..."] }
 ```
 
-Переводит свои `pending`/`approved`/`duplicate` записи в `withdrawn`; чужие и опубликованные не меняет. До 200 id. Ответ: `{ count }`.
+Переводит свои `pending`/`approved`/`duplicate` записи в `withdrawn`; чужие и опубликованные не меняет. До 200 id. Ответ: `{ count }`. Это отдельное действие: удаление личной ассоциации и смена согласия сами по себе ранее переданные вклады не отзывают.
 
 ## Платежи
 
@@ -207,7 +208,7 @@
 
 - `/admin` — HTML-страница, требует `role=admin`.
 - `/admin/contributions` — очередь вкладов и решения.
-- `GET /api/admin/mnemonic-contributions?status=&limit=&offset=` — очередь; статус по умолчанию `pending`, limit до 200; без email и сырого `userId`.
+- `GET /api/admin/mnemonic-contributions?status=&limit=&offset=` — очередь; статус по умолчанию `pending`, limit по умолчанию 50, максимум 200; без email и сырого `userId`.
 - `POST /api/admin/mnemonic-contributions/:id/decision` — `{ action, reason? }`, где action: `approve`, `reject`, `duplicate`, `needs_edit`, `withdraw`. `reject`/`needs_edit` требуют причину. `approve` не публикует контент. `withdrawn` терминален (`409`).
 
 Подробнее — [USER_MNEMONICS.md](USER_MNEMONICS.md) и [PRIVACY.md](PRIVACY.md).

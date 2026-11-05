@@ -77,6 +77,29 @@ describe("detectSensitiveContent", () => {
     });
   });
 
+  it("flags a dotted phone only when it has an explicit plus prefix", () => {
+    expect(
+      detectSensitiveContent("Позвони +7.999.123.45.67 вечером"),
+    ).toEqual({ email: false, phone: true, url: false });
+    expect(
+      detectSensitiveContent("Встреча 12.12.2026 в 15:30"),
+    ).toEqual({ email: false, phone: false, url: false });
+  });
+
+  it("flags numeric IPv4 addresses as URLs, not phones", () => {
+    expect(detectSensitiveContent("Сервер 192.168.1.10 доступен")).toEqual({
+      email: false,
+      phone: false,
+      url: true,
+    });
+  });
+
+  it("flags bare punycode domains as URLs", () => {
+    expect(
+      detectSensitiveContent("Сайт xn--80ak6aa92e.xn--p1ai работает"),
+    ).toEqual({ email: false, phone: false, url: true });
+  });
+
   it("does not report a URL for the domain part of an email", () => {
     expect(detectSensitiveContent("mail me at test@example.com")).toEqual({
       email: true,
