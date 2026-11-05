@@ -141,10 +141,60 @@ describe("SyncLocal", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "Получено: 0 карточек, 1 личных ассоциаций",
     );
+    expect(window.localStorage.getItem(GUEST_OWNER_KEY)).toBe("user-a");
   });
 });
 
 describe("SyncLocal account owner", () => {
+  it("stamps the owner only after the first sync succeeds", async () => {
+    const { state } = localState();
+    const applyServerProgress = vi.fn((userId: string, server: ServerProgress) => {
+      return mergeServerProgress(state, server, userId);
+    });
+    mocks.guest.current = {
+      ready: true,
+      cards: state.cards,
+      settings: state.settings,
+      userMnemonics: state.userMnemonics,
+      applyServerProgress,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          return {
+            ok: false,
+            status: 503,
+            json: async () => ({ error: "SYNC_FAILED" }),
+          } as Response;
+        }
+
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            cards: [],
+            selections: {},
+            settings: defaultSettings,
+            userMnemonics: [],
+          }),
+        } as Response;
+      }),
+    );
+
+    render(<SyncLocal />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Синхронизировать прогресс" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(
+        "Не удалось синхронизировать прогресс. Попробуйте позже.",
+      ),
+    );
+    expect(window.localStorage.getItem(GUEST_OWNER_KEY)).toBeNull();
+  });
+
   it("refuses to sync local personal text owned by another account", async () => {
     const { state } = localState();
     window.localStorage.setItem(GUEST_OWNER_KEY, "user-b");

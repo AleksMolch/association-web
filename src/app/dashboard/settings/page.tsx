@@ -40,7 +40,7 @@ import {
   ACCOUNT_MISMATCH_MESSAGE,
   assessGuestOwner,
   readGuestOwner,
-  writeGuestOwner,
+  registerGuestOwnerMutation,
 } from "@/lib/guest-owner";
 import { useGuest } from "@/lib/guest-store";
 import type { Settings } from "@/lib/types";
@@ -146,8 +146,6 @@ export default function DashboardSettingsPage() {
           return;
         }
 
-        if (owner === "claim") writeGuestOwner(sessionUserId);
-
         const reconciliation = reconcileConsentPreference(
           settingsRef.current.contributionConsent,
           preference.status,
@@ -214,14 +212,15 @@ export default function DashboardSettingsPage() {
 
   function applyConsent(action: ConsentAction) {
     if (sessionUserId) {
-      const owner = ownerDecision(sessionUserId);
+      const owner = registerGuestOwnerMutation(sessionUserId, {
+        settings: settingsRef.current,
+        userMnemonics: userMnemonicsRef.current,
+      });
 
       if (owner === "mismatch") {
         applyServerPreferenceAfterMismatch();
         return;
       }
-
-      if (owner === "claim") writeGuestOwner(sessionUserId);
     }
 
     const version = decisionVersionRef.current + 1;

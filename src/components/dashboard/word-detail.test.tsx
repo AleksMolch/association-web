@@ -7,6 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { words } from "@/content";
 import { CONSENT_COPY, CONSENT_VERSION } from "@/features/contributions/consent";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
+import {
+  ACCOUNT_MISMATCH_MESSAGE,
+  GUEST_OWNER_KEY,
+} from "@/lib/guest-owner";
 import { defaultSettings } from "@/lib/types";
 
 import { WordDetail } from "./word-detail";
@@ -114,6 +118,7 @@ function renderDetail(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   mocks.session.current = { data: null, isPending: false };
   vi.stubGlobal(
     "fetch",
@@ -392,6 +397,52 @@ describe("WordDetail consent", () => {
       })),
     );
   }
+
+  it("блокирует создание личного текста под чужим аккаунтом", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-b" } },
+      isPending: false,
+    };
+    window.localStorage.setItem(GUEST_OWNER_KEY, "user-a");
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 2 },
+    });
+
+    submitNewVariant();
+
+    expect(guest.createUserMnemonic).not.toHaveBeenCalled();
+    expect(mocks.toast.error).toHaveBeenCalledWith(ACCOUNT_MISMATCH_MESSAGE);
+  });
+
+  it("не отправляет согласие чужого аккаунта и применяет серверное", async () => {
+    mocks.session.current = {
+      data: { user: { id: "user-b" } },
+      isPending: false,
+    };
+    window.localStorage.setItem(GUEST_OWNER_KEY, "user-a");
+    stubServerPreference("unset");
+    const guest = renderDetail({
+      settings: { ...defaultSettings, userMnemonicCreatedCount: 3 },
+    });
+
+    await screen.findByRole("dialog", { name: CONSENT_COPY.title });
+    fireEvent.click(
+      screen.getByRole("button", { name: CONSENT_COPY.detailLink }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: CONSENT_COPY.detailDeclineButton }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(ACCOUNT_MISMATCH_MESSAGE),
+    );
+    expect(guest.updateSettings).not.toHaveBeenCalledWith(
+      expect.objectContaining({ contributionConsent: "declined" }),
+    );
+    expect(
+      vi.mocked(fetch).mock.calls.some((call) => call[1]?.method === "PUT"),
+    ).toBe(false);
+  });
 
   it("увеличивает счётчик только после полного успешного создания", async () => {
     const guest = renderDetail({

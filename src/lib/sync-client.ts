@@ -163,8 +163,17 @@ function isTimestamp(value: unknown): value is string {
   return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
-function timestampOrEpoch(value: string | undefined): string {
-  return isTimestamp(value) ? value : new Date(0).toISOString();
+function isUsableTimestamp(value: string | undefined): value is string {
+  return isTimestamp(value) && Date.parse(value) > 0;
+}
+
+function timestampOrFallback(
+  value: string | undefined,
+  fallback: string | undefined,
+): string {
+  if (isUsableTimestamp(value)) return value;
+  if (isUsableTimestamp(fallback)) return fallback;
+  return new Date(0).toISOString();
 }
 
 function prefersIncomingCard(
@@ -392,8 +401,14 @@ export function mergeServerProgress(
       continue;
     }
 
-    const localTimestamp = timestampOrEpoch(localSelectionUpdatedAt[key]);
-    const serverTimestamp = timestampOrEpoch(serverSelectionUpdatedAt[key]);
+    const localTimestamp = timestampOrFallback(
+      localSelectionUpdatedAt[key],
+      local.updatedAt,
+    );
+    const serverTimestamp = timestampOrFallback(
+      serverSelectionUpdatedAt[key],
+      undefined,
+    );
 
     if (isNewerTimestamp(serverTimestamp, localTimestamp)) {
       selections[key] = mnemonicId;
@@ -402,8 +417,14 @@ export function mergeServerProgress(
     }
   }
 
-  const localSettingsTimestamp = timestampOrEpoch(local.settingsUpdatedAt);
-  const serverSettingsTimestamp = timestampOrEpoch(server.settingsUpdatedAt);
+  const localSettingsTimestamp = timestampOrFallback(
+    local.settingsUpdatedAt,
+    local.updatedAt,
+  );
+  const serverSettingsTimestamp = timestampOrFallback(
+    server.settingsUpdatedAt,
+    undefined,
+  );
   let settings: Settings;
   let settingsUpdatedAt: string;
 

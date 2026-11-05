@@ -91,8 +91,10 @@ describe("migrateGuestState", () => {
     expect(migrated.cards).toEqual(v1State.cards);
     expect(migrated.reviews).toEqual(v1State.reviews);
     expect(migrated.selections).toEqual(v1State.selections);
-    expect(migrated.selectionUpdatedAt).toEqual({});
-    expect(migrated.settingsUpdatedAt).toBe("1970-01-01T00:00:00.000Z");
+    expect(migrated.selectionUpdatedAt).toEqual({
+      [String(card.wordId)]: v1State.updatedAt,
+    });
+    expect(migrated.settingsUpdatedAt).toBe(v1State.updatedAt);
     expect(migrated.updatedAt).toBe(v1State.updatedAt);
     expect(migrated.settings).toEqual({
       ...defaultSettings,
@@ -104,6 +106,23 @@ describe("migrateGuestState", () => {
     });
     expect(migrated.userMnemonics).toEqual({});
     expect(migrated.localMediaMeta).toEqual({});
+  });
+
+  it("fills missing legacy timestamps from the persisted updatedAt", () => {
+    const updatedAt = "2026-11-04T12:00:00.000Z";
+    const migrated = migrateGuestState({
+      version: 2,
+      cards: {},
+      selections: { [String(word.id)]: firstBuiltin.id },
+      settings: { ...defaultSettings, dailyGoal: 20 },
+      reviews: [],
+      userMnemonics: {},
+      localMediaMeta: {},
+      updatedAt,
+    });
+
+    expect(migrated.selectionUpdatedAt[String(word.id)]).toBe(updatedAt);
+    expect(migrated.settingsUpdatedAt).toBe(updatedAt);
   });
 
   it("returns an empty version 2 state for unknown versions", () => {

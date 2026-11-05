@@ -47,6 +47,22 @@ export function assessGuestOwner(
   return hasLocalPersonalData(snapshot) ? "mismatch" : "claim";
 }
 
+/**
+ * Фиксирует владельца при первом личном действии аккаунта.
+ *
+ * Вызывается только из реальных create/update/delete/consent-действий, а не
+ * при простом открытии экрана. Чужой маркер при наличии личных данных
+ * возвращает `mismatch` и ничего не перезаписывает.
+ */
+export function registerGuestOwnerMutation(
+  userId: string,
+  snapshot: LocalOwnerSnapshot,
+): LocalOwnerDecision {
+  const decision = assessGuestOwner(readGuestOwner(), userId, snapshot);
+  if (decision === "claim") writeGuestOwner(userId);
+  return decision;
+}
+
 function storage(): Storage | null {
   if (typeof window === "undefined") return null;
 

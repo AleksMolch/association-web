@@ -108,14 +108,20 @@ function arrayOf<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function isUsableTimestamp(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    Number.isFinite(Date.parse(value)) &&
+    Date.parse(value) > 0
+  );
+}
+
 function timestampRecordOf(value: unknown): Record<string, string> {
   if (!isRecord(value)) return {};
 
   return Object.fromEntries(
     Object.entries(value).filter(
-      (entry): entry is [string, string] =>
-        typeof entry[1] === "string" &&
-        Number.isFinite(Date.parse(entry[1])),
+      (entry): entry is [string, string] => isUsableTimestamp(entry[1]),
     ),
   );
 }
@@ -128,24 +134,46 @@ export function migrateGuestState(raw: unknown): GuestState {
     return fallback;
   }
 
+  const selections = recordOf<string>(raw.selections);
+  const legacyUpdatedAt = isUsableTimestamp(raw.updatedAt)
+    ? raw.updatedAt
+    : EMPTY_UPDATED_AT;
+  const hasSelectionTimestampField = raw.selectionUpdatedAt !== undefined;
+  const hasSettingsTimestampField = raw.settingsUpdatedAt !== undefined;
+  const recordedSelectionUpdatedAt = timestampRecordOf(
+    raw.selectionUpdatedAt,
+  );
+  const selectionUpdatedAt: Record<string, string> = {};
+
+  for (const wordId of Object.keys(selections)) {
+    const recorded = recordedSelectionUpdatedAt[wordId];
+
+    if (isUsableTimestamp(recorded)) {
+      selectionUpdatedAt[wordId] = recorded;
+    } else if (!hasSelectionTimestampField) {
+      selectionUpdatedAt[wordId] = legacyUpdatedAt;
+    }
+  }
+
   return {
     version: 2,
     cards: recordOf<CardRow>(raw.cards),
-    selections: recordOf<string>(raw.selections),
-    selectionUpdatedAt: timestampRecordOf(raw.selectionUpdatedAt),
+    selections,
+    selectionUpdatedAt,
     settings: isRecord(raw.settings)
       ? { ...defaultSettings, ...(raw.settings as Partial<Settings>) }
       : { ...defaultSettings },
-    settingsUpdatedAt:
-      typeof raw.settingsUpdatedAt === "string" &&
-      Number.isFinite(Date.parse(raw.settingsUpdatedAt))
-        ? raw.settingsUpdatedAt
-        : EMPTY_UPDATED_AT,
+    settingsUpdatedAt: isUsableTimestamp(raw.settingsUpdatedAt)
+      ? raw.settingsUpdatedAt
+      : hasSettingsTimestampField
+        ? EMPTY_UPDATED_AT
+        : legacyUpdatedAt,
     reviews: arrayOf<ReviewRow>(raw.reviews),
     userMnemonics: recordOf<UserMnemonic>(raw.userMnemonics),
     localMediaMeta: recordOf<LocalMnemonicMedia>(raw.localMediaMeta),
-    updatedAt:
-      typeof raw.updatedAt === "string" ? raw.updatedAt : EMPTY_UPDATED_AT,
+    updatedAt: isUsableTimestamp(raw.updatedAt)
+      ? raw.updatedAt
+      : EMPTY_UPDATED_AT,
   };
 }
 

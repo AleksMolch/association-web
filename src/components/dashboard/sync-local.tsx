@@ -82,13 +82,13 @@ export function SyncLocal() {
         return;
       }
 
-      if (ownerDecision === "claim") writeGuestOwner(userId);
-
       const server = await pullProgress();
       const merged = applyServerProgress(userId, server);
       const payload = buildProgressPayload(merged.state);
 
       await pushProgress(merged.state);
+
+      if (ownerDecision === "claim") writeGuestOwner(userId);
 
       setSummary({
         pushed: {

@@ -45,6 +45,12 @@ import { LocalImage } from "@/features/user-mnemonics/components/local-image";
 import { MnemonicEditor } from "@/features/user-mnemonics/components/mnemonic-editor";
 import { deleteLocalImage } from "@/features/user-mnemonics/image-local-store";
 import { useSession } from "@/lib/auth-client";
+import {
+  ACCOUNT_MISMATCH_MESSAGE,
+  assessGuestOwner,
+  readGuestOwner,
+  registerGuestOwnerMutation,
+} from "@/lib/guest-owner";
 import { formatNextReview, stateLabel } from "@/lib/fsrs";
 import {
   useGuest,
@@ -72,6 +78,7 @@ export function WordDetail({
     settings,
     cardByWord,
     preferred,
+    userMnemonics,
     activeUserMnemonics,
     consentPromptShown,
     updateSettings,
@@ -142,6 +149,26 @@ export function WordDetail({
         if (!active) return;
 
         const local = settingsRef.current;
+        const owner = assessGuestOwner(readGuestOwner(), sessionUserId, {
+          settings: local,
+          userMnemonics,
+        });
+
+        if (owner === "mismatch") {
+          const applied = applyPreferenceToSettings(local, preference);
+          settingsRef.current = applied;
+          updateSettings({
+            contributionConsent: applied.contributionConsent,
+            contributionConsentVersion: applied.contributionConsentVersion,
+            contributionNextPromptAt: applied.contributionNextPromptAt,
+          });
+          setAppliedServerPreference({
+            userId: sessionUserId,
+            preference,
+          });
+          setPreferenceUserId(sessionUserId);
+          return;
+        }
 
         if (
           reconcileConsentPreference(
@@ -179,7 +206,7 @@ export function WordDetail({
     return () => {
       active = false;
     };
-  }, [sessionUserId, updateSettings]);
+  }, [sessionUserId, updateSettings, userMnemonics]);
 
   const initialMnemonic = initialEditId && !initialEditClosed
     ? activeUserMnemonics[initialEditId]
@@ -206,7 +233,22 @@ export function WordDetail({
     });
   }
 
+  function registerPersonalMutation(): boolean {
+    if (!sessionUserId) return true;
+
+    const decision = registerGuestOwnerMutation(sessionUserId, {
+      settings: settingsRef.current,
+      userMnemonics,
+    });
+
+    return decision !== "mismatch";
+  }
+
   function createQueuedMnemonic(input: CreateUserMnemonicInput) {
+    if (!registerPersonalMutation()) {
+      throw new Error(ACCOUNT_MISMATCH_MESSAGE);
+    }
+
     const saved = createUserMnemonic(input);
     enqueueSavedMnemonic(saved);
     return saved;
@@ -216,12 +258,47 @@ export function WordDetail({
     id: string,
     patch: UpdateUserMnemonicPatch,
   ) {
+    if (!registerPersonalMutation()) {
+      throw new Error(ACCOUNT_MISMATCH_MESSAGE);
+    }
+
     const saved = updateUserMnemonic(id, patch);
     if (saved) enqueueSavedMnemonic(saved);
     return saved;
   }
 
   function applyConsent(action: ConsentAction) {
+    if (sessionUserId) {
+      const owner = registerGuestOwnerMutation(sessionUserId, {
+        settings: settingsRef.current,
+        userMnemonics,
+      });
+
+      if (owner === "mismatch") {
+        toast.error(ACCOUNT_MISMATCH_MESSAGE);
+        void getContributionPreference()
+          .then((preference) => {
+            const applied = applyPreferenceToSettings(
+              settingsRef.current,
+              preference,
+            );
+            settingsRef.current = applied;
+            updateSettings({
+              contributionConsent: applied.contributionConsent,
+              contributionConsentVersion:
+                applied.contributionConsentVersion,
+              contributionNextPromptAt: applied.contributionNextPromptAt,
+            });
+            setAppliedServerPreference({
+              userId: sessionUserId,
+              preference,
+            });
+          })
+          .catch(() => undefined);
+        return;
+      }
+    }
+
     const version = consentActionVersionRef.current + 1;
     consentActionVersionRef.current = version;
     setConsentDismissed(true);
@@ -300,6 +377,11 @@ export function WordDetail({
     );
 
   async function handleDelete(mnemonic: UserMnemonic) {
+    if (!registerPersonalMutation()) {
+      toast.error(ACCOUNT_MISMATCH_MESSAGE);
+      return;
+    }
+
     const wasPreferred = activeId === mnemonic.id;
     const fallback = wasPreferred ? primaryMnemonic(activeWord) : null;
 

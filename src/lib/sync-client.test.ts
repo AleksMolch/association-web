@@ -444,6 +444,31 @@ describe("mergeServerProgress", () => {
     expect(result.state.selections["1"]).toBe("builtin-web");
     expect(result.state.selectionUpdatedAt["1"]).toBeUndefined();
   });
+
+  it("falls back to state.updatedAt for legacy local selections and settings", () => {
+    const state = baseState({
+      selections: { "1": "builtin-web" },
+      selectionUpdatedAt: {},
+      settings: { ...defaultSettings, dailyGoal: 5 },
+      settingsUpdatedAt: "1970-01-01T00:00:00.000Z",
+      updatedAt: LATER,
+    });
+
+    const result = mergeServerProgress(
+      state,
+      {
+        selections: { "1": "usr-mobile" },
+        selectionUpdatedAt: { "1": EARLIER },
+        settings: { ...defaultSettings, dailyGoal: 20 },
+        settingsUpdatedAt: EARLIER,
+      },
+      USER_ID,
+      NOW,
+    );
+
+    expect(result.state.selections["1"]).toBe("builtin-web");
+    expect(result.state.settings.dailyGoal).toBe(5);
+  });
 });
 
 describe("mergeServerUserMnemonicsInState", () => {
