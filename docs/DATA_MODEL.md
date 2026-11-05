@@ -75,7 +75,9 @@ user 1 ──< audit_log
 | `user_mnemonics` | текст, `rev`, `deletedAt` |
 | `local_mnemonic_media` | `mnemonic_id`, `local_uri`, MIME, размеры, checksum |
 | `contribution_outbox` | очередь вкладов со статусом, попытками и `next_attempt_at` |
-| `sync_meta` | `entity`, `last_pulled_at`, `last_pushed_at` |
+| `sync_meta` | `entity`, `last_pulled_at`, `last_pushed_at`, `owner_id` — маркер аккаунта-владельца локальных данных |
+
+Web хранит маркер владельца в `localStorage` под ключом `association_guest_owner`; он не удаляется автоматически при смене аккаунта.
 
 ### Платежи
 

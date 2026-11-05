@@ -20,6 +20,7 @@ import React, {
 
 import { recordMnemonicCreation } from "@/features/contributions/consent-preferences";
 import { clearOutboxStorage } from "@/features/contributions/outbox";
+import { clearGuestOwner } from "@/lib/guest-owner";
 import type {
   LocalMnemonicMedia,
   UserMnemonic,
@@ -44,11 +45,20 @@ import {
 
 const STORAGE_KEY = "association_guest_v1";
 
+const SYNC_SETTINGS_KEYS = [
+  "dailyGoal",
+  "hintsEnabled",
+  "reducedMotion",
+  "ttsRate",
+] as const satisfies readonly (keyof Settings)[];
+
 export type GuestState = {
   version: 2;
   cards: Record<string, CardRow>;
   selections: Record<string, string>;
+  selectionUpdatedAt: Record<string, string>;
   settings: Settings;
+  settingsUpdatedAt: string;
   reviews: ReviewRow[];
   userMnemonics: Record<string, UserMnemonic>;
   localMediaMeta: Record<string, LocalMnemonicMedia>;
@@ -77,7 +87,9 @@ const emptyState = (): GuestState => ({
   version: 2,
   cards: {},
   selections: {},
+  selectionUpdatedAt: {},
   settings: { ...defaultSettings },
+  settingsUpdatedAt: EMPTY_UPDATED_AT,
   reviews: [],
   userMnemonics: {},
   localMediaMeta: {},
@@ -96,6 +108,18 @@ function arrayOf<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
 
+function timestampRecordOf(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[1] === "string" &&
+        Number.isFinite(Date.parse(entry[1])),
+    ),
+  );
+}
+
 /** Приводит сохранённое состояние версии 1 или 2 к актуальной версии 2. */
 export function migrateGuestState(raw: unknown): GuestState {
   const fallback = emptyState();
@@ -108,14 +132,44 @@ export function migrateGuestState(raw: unknown): GuestState {
     version: 2,
     cards: recordOf<CardRow>(raw.cards),
     selections: recordOf<string>(raw.selections),
+    selectionUpdatedAt: timestampRecordOf(raw.selectionUpdatedAt),
     settings: isRecord(raw.settings)
       ? { ...defaultSettings, ...(raw.settings as Partial<Settings>) }
       : { ...defaultSettings },
+    settingsUpdatedAt:
+      typeof raw.settingsUpdatedAt === "string" &&
+      Number.isFinite(Date.parse(raw.settingsUpdatedAt))
+        ? raw.settingsUpdatedAt
+        : EMPTY_UPDATED_AT,
     reviews: arrayOf<ReviewRow>(raw.reviews),
     userMnemonics: recordOf<UserMnemonic>(raw.userMnemonics),
     localMediaMeta: recordOf<LocalMnemonicMedia>(raw.localMediaMeta),
     updatedAt:
       typeof raw.updatedAt === "string" ? raw.updatedAt : EMPTY_UPDATED_AT,
+  };
+}
+
+/** Обновляет настройки и помечает их локально новыми только при изменении sync-полей. */
+export function updateSettingsInState(
+  state: GuestState,
+  patch: Partial<Settings>,
+  now: Date = new Date(),
+): GuestState {
+  const keys = Object.keys(patch) as (keyof Settings)[];
+  const changed = keys.some((key) => patch[key] !== state.settings[key]);
+
+  if (!changed) return state;
+
+  const syncChanged = SYNC_SETTINGS_KEYS.some(
+    (key) => key in patch && patch[key] !== state.settings[key],
+  );
+  const iso = now.toISOString();
+
+  return {
+    ...state,
+    settings: { ...state.settings, ...patch },
+    ...(syncChanged ? { settingsUpdatedAt: iso } : {}),
+    updatedAt: syncChanged ? iso : state.updatedAt,
   };
 }
 
@@ -231,9 +285,13 @@ export function deleteUserMnemonicInState(
 
   const iso = now.toISOString();
   const selections = { ...state.selections };
+  const selectionUpdatedAt = { ...state.selectionUpdatedAt };
   const wordKey = String(existing.wordId);
 
-  if (selections[wordKey] === id) delete selections[wordKey];
+  if (selections[wordKey] === id) {
+    delete selections[wordKey];
+    delete selectionUpdatedAt[wordKey];
+  }
 
   const localMediaMeta = { ...state.localMediaMeta };
   delete localMediaMeta[id];
@@ -241,6 +299,7 @@ export function deleteUserMnemonicInState(
   return {
     ...state,
     selections,
+    selectionUpdatedAt,
     userMnemonics: {
       ...state.userMnemonics,
       [id]: {
@@ -354,16 +413,27 @@ export function selectMnemonicInState(
 
   const wordKey = String(wordId);
   const cards = { ...state.cards };
+  let cardCreated = false;
 
   if (mode === "initial" && !cards[wordKey]) {
     cards[wordKey] = createNewCard(wordId, now);
+    cardCreated = true;
   }
+
+  if (state.selections[wordKey] === mnemonicId) {
+    return cardCreated
+      ? { ...state, cards, updatedAt: now.toISOString() }
+      : state;
+  }
+
+  const iso = now.toISOString();
 
   return {
     ...state,
     cards,
     selections: { ...state.selections, [wordKey]: mnemonicId },
-    updatedAt: now.toISOString(),
+    selectionUpdatedAt: { ...state.selectionUpdatedAt, [wordKey]: iso },
+    updatedAt: iso,
   };
 }
 
@@ -572,11 +642,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
   const session = useMemo(() => (ready ? buildSession(state) : []), [ready, state]);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
-    updateState((prev) => ({
-      ...prev,
-      settings: { ...prev.settings, ...patch },
-      updatedAt: new Date().toISOString(),
-    }));
+    updateState((prev) => updateSettingsInState(prev, patch));
   }, []);
 
   const markConsentPromptShown = useCallback(() => {
@@ -694,6 +760,7 @@ export function GuestProvider({ children }: { children: React.ReactNode }) {
 
   const reset = useCallback(() => {
     clearOutboxStorage();
+    clearGuestOwner();
     updateState(() => emptyState());
   }, []);
 

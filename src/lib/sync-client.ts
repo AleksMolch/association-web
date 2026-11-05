@@ -12,13 +12,21 @@ import {
 export type ServerProgress = {
   cards?: CardRow[];
   selections?: Record<string, string>;
+  selectionUpdatedAt?: Record<string, string>;
   settings?: Partial<Settings>;
+  settingsUpdatedAt?: string;
   userMnemonics?: UserMnemonic[];
 };
 
 export type ProgressSource = Pick<
   GuestState,
-  "cards" | "selections" | "settings" | "reviews" | "userMnemonics"
+  | "cards"
+  | "selections"
+  | "selectionUpdatedAt"
+  | "settings"
+  | "settingsUpdatedAt"
+  | "reviews"
+  | "userMnemonics"
 >;
 
 export type SyncUserMnemonic = {
@@ -37,7 +45,9 @@ export type SyncUserMnemonic = {
 export type ProgressPushPayload = {
   cards: CardRow[];
   selections: Record<string, string>;
+  selectionUpdatedAt: Record<string, string>;
   settings: Settings;
+  settingsUpdatedAt?: string;
   reviews: ReviewRow[];
   userMnemonics: SyncUserMnemonic[];
 };
@@ -136,6 +146,25 @@ export function stripServerPrefix(userId: string, id: string): string {
 
 function timestampMs(value: string): number {
   return Date.parse(value);
+}
+
+function isNewerTimestamp(incoming: string, stored: string): boolean {
+  const incomingMs = timestampMs(incoming);
+  const storedMs = timestampMs(stored);
+
+  return (
+    Number.isFinite(incomingMs) &&
+    Number.isFinite(storedMs) &&
+    incomingMs > storedMs
+  );
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
+}
+
+function timestampOrEpoch(value: string | undefined): string {
+  return isTimestamp(value) ? value : new Date(0).toISOString();
 }
 
 function prefersIncomingCard(
@@ -252,13 +281,48 @@ function hasLocalChanges(state: GuestState): boolean {
   );
 }
 
+const SYNC_SETTING_KEYS = [
+  "dailyGoal",
+  "hintsEnabled",
+  "reducedMotion",
+  "ttsRate",
+] as const satisfies readonly (keyof Settings)[];
+
+/** Берёт с сервера только синхронизируемые поля, сохраняя локальные согласия. */
+function mergeServerSettings(
+  local: Settings,
+  server: Partial<Settings> | undefined,
+): Settings {
+  const merged = { ...local };
+  if (!server) return merged;
+
+  for (const key of SYNC_SETTING_KEYS) {
+    if (server[key] !== undefined) {
+      (merged as Record<string, unknown>)[key] = server[key];
+    }
+  }
+
+  return merged;
+}
+
 export function buildProgressPayload(
   source: ProgressSource,
 ): ProgressPushPayload {
+  const selectionUpdatedAt: Record<string, string> = {};
+
+  for (const wordId of Object.keys(source.selections)) {
+    const updatedAt = source.selectionUpdatedAt?.[wordId];
+    if (isTimestamp(updatedAt)) selectionUpdatedAt[wordId] = updatedAt;
+  }
+
   return {
     cards: Object.values(source.cards),
     selections: { ...source.selections },
+    selectionUpdatedAt,
     settings: { ...source.settings },
+    settingsUpdatedAt: isTimestamp(source.settingsUpdatedAt)
+      ? source.settingsUpdatedAt
+      : undefined,
     reviews: source.reviews.map(toSyncReview),
     userMnemonics: Object.values(source.userMnemonics).map(toSyncUserMnemonic),
   };
@@ -306,23 +370,64 @@ export function mergeServerProgress(
 
   const localSelections = normalizeSelections(userId, local.selections);
   const serverSelections = normalizeSelections(userId, server.selections);
+  const localSelectionUpdatedAt = local.selectionUpdatedAt ?? {};
+  const serverSelectionUpdatedAt = server.selectionUpdatedAt ?? {};
+  const selections = { ...localSelections };
+  const selectionUpdatedAt: Record<string, string> = {};
   let pulledSelections = 0;
 
-  for (const key of Object.keys(serverSelections)) {
-    if (!(key in localSelections)) pulledSelections += 1;
+  for (const key of Object.keys(localSelections)) {
+    if (isTimestamp(localSelectionUpdatedAt[key])) {
+      selectionUpdatedAt[key] = localSelectionUpdatedAt[key];
+    }
   }
 
-  const selections = { ...serverSelections, ...localSelections };
-  const settings = hasLocalChanges(local)
-    ? local.settings
-    : { ...defaultSettings, ...(server.settings ?? {}) };
+  for (const [key, mnemonicId] of Object.entries(serverSelections)) {
+    if (!(key in selections)) {
+      selections[key] = mnemonicId;
+      if (isTimestamp(serverSelectionUpdatedAt[key])) {
+        selectionUpdatedAt[key] = serverSelectionUpdatedAt[key];
+      }
+      pulledSelections += 1;
+      continue;
+    }
+
+    const localTimestamp = timestampOrEpoch(localSelectionUpdatedAt[key]);
+    const serverTimestamp = timestampOrEpoch(serverSelectionUpdatedAt[key]);
+
+    if (isNewerTimestamp(serverTimestamp, localTimestamp)) {
+      selections[key] = mnemonicId;
+      selectionUpdatedAt[key] = serverTimestamp;
+      pulledSelections += 1;
+    }
+  }
+
+  const localSettingsTimestamp = timestampOrEpoch(local.settingsUpdatedAt);
+  const serverSettingsTimestamp = timestampOrEpoch(server.settingsUpdatedAt);
+  let settings: Settings;
+  let settingsUpdatedAt: string;
+
+  if (isNewerTimestamp(serverSettingsTimestamp, localSettingsTimestamp)) {
+    settings = mergeServerSettings(local.settings, server.settings);
+    settingsUpdatedAt = serverSettingsTimestamp;
+  } else if (isNewerTimestamp(localSettingsTimestamp, serverSettingsTimestamp)) {
+    settings = local.settings;
+    settingsUpdatedAt = localSettingsTimestamp;
+  } else {
+    settings = hasLocalChanges(local)
+      ? local.settings
+      : mergeServerSettings(local.settings, server.settings);
+    settingsUpdatedAt = localSettingsTimestamp;
+  }
 
   return {
     state: {
       ...local,
       cards,
       selections,
+      selectionUpdatedAt,
       settings,
+      settingsUpdatedAt,
       userMnemonics,
       updatedAt: now.toISOString(),
     },
@@ -346,8 +451,18 @@ function normalizeServerProgress(raw: unknown): ServerProgress {
           ),
         )
       : {},
+    selectionUpdatedAt: isRecord(raw.selectionUpdatedAt)
+      ? Object.fromEntries(
+          Object.entries(raw.selectionUpdatedAt).filter(
+            (entry): entry is [string, string] => isTimestamp(entry[1]),
+          ),
+        )
+      : {},
     settings: isRecord(raw.settings)
       ? (raw.settings as Partial<Settings>)
+      : undefined,
+    settingsUpdatedAt: isTimestamp(raw.settingsUpdatedAt)
+      ? raw.settingsUpdatedAt
       : undefined,
     userMnemonics: Array.isArray(raw.userMnemonics)
       ? raw.userMnemonics.filter(isUserMnemonic)

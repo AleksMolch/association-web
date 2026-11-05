@@ -35,6 +35,7 @@
     }
   ],
   "selections": { "42": "42-1" },
+  "selectionUpdatedAt": { "42": "2026-01-01T09:00:00.000Z" },
   "settings": {
     "dailyGoal": 10,
     "hintsEnabled": true,
@@ -42,9 +43,12 @@
     "ttsRate": 0.95,
     "associationSwipeHintSeen": false
   },
+  "settingsUpdatedAt": "2026-01-01T09:00:00.000Z",
   "userMnemonics": []
 }
 ```
+
+Текст личных ассоциаций синхронизируется с аккаунтом; изображения остаются только на исходном устройстве и в API не передаются.
 
 ### `POST /api/progress`
 
@@ -54,7 +58,9 @@
 {
   "cards": [],
   "selections": {},
+  "selectionUpdatedAt": {},
   "settings": {},
+  "settingsUpdatedAt": "2026-01-01T09:00:00.000Z",
   "reviews": [],
   "userMnemonics": []
 }
@@ -63,8 +69,8 @@
 Правила:
 
 - карточка обновляется, если входящий `rev` больше серверного; при равенстве — по `updatedAt`;
-- личные ассоциации — по `rev`/`updatedAt`, tombstone побеждает активную при равенстве;
-- выборы и настройки — last-write-wins по `updatedAt`;
+- личные ассоциации — по `rev`/`updatedAt`, tombstone побеждает активную при равенстве; сервер всегда заменяет префикс id на `${userId}:` из сессии и не обновляет строку другого владельца;
+- выборы и настройки — last-write-wins по `updatedAt`; `selectionUpdatedAt` и `settingsUpdatedAt` опциональны, без них сервер использует текущее время (legacy-поведение);
 - отзывы вставляются идемпотентно;
 - схема legacy-прогресса нестрогая: неизвестные верхнеуровневые ключи игнорируются, вложенная `userMnemonics` строгая;
 - ответ — актуальное состояние, как у `GET`.

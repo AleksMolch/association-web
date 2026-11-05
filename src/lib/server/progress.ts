@@ -62,7 +62,9 @@ export type MobileSyncState = {
 export type WebProgress = {
   cards: CardRow[];
   selections: Record<string, string>;
+  selectionUpdatedAt: Record<string, string>;
   settings: Settings;
+  settingsUpdatedAt: string;
   userMnemonics: UserMnemonic[];
 };
 
@@ -88,7 +90,9 @@ export type ProgressInput = {
   cards?: CardRow[];
   reviews?: ReviewInput[];
   selections?: Record<string, string> | MobileSelection[];
+  selectionUpdatedAt?: Record<string, string>;
   settings?: SettingsInput;
+  settingsUpdatedAt?: string;
   userMnemonics?: UserMnemonic[];
 };
 
@@ -96,6 +100,10 @@ const EPOCH = new Date(0).toISOString();
 
 function timestampMs(value: string | Date): number {
   return value instanceof Date ? value.getTime() : Date.parse(value);
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === "string" && Number.isFinite(Date.parse(value));
 }
 
 /** true, когда входящая ревизия строго новее сохранённой. */
@@ -279,9 +287,21 @@ function toServerId(userId: string, clientId: string): string {
   return clientId.startsWith(prefix) ? clientId : `${prefix}${clientId}`;
 }
 
+/**
+ * Строит серверный id личной ассоциации только от клиентской части.
+ *
+ * Любой префикс из тела запроса отбрасывается; владелец всегда берётся из
+ * сессии, поэтому чужой id не может попасть в upsert.
+ */
+function toServerMnemonicId(userId: string, clientId: string): string {
+  const separator = clientId.lastIndexOf(":");
+  const localId = separator === -1 ? clientId : clientId.slice(separator + 1);
+  return `${userId}:${localId}`;
+}
+
 export function toUserMnemonicInsert(userId: string, row: UserMnemonic): UserMnemonicInsert {
   return {
-    id: toServerId(userId, row.id),
+    id: toServerMnemonicId(userId, row.id),
     userId,
     wordId: row.wordId,
     meaningId: row.meaningId,
@@ -299,7 +319,14 @@ export function toWebProgress(state: MobileSyncState): WebProgress {
   return {
     cards: state.cards,
     selections: selectionMap(state.selections),
+    selectionUpdatedAt: Object.fromEntries(
+      state.selections.map((selection) => [
+        String(selection.wordId),
+        selection.updatedAt,
+      ]),
+    ),
     settings: toSettings(state.settings),
+    settingsUpdatedAt: state.settings.updatedAt,
     userMnemonics: state.userMnemonics,
   };
 }
@@ -325,26 +352,35 @@ export async function loadProgress(userId: string): Promise<MobileSyncState> {
 function normalizeSelections(
   input: ProgressInput["selections"],
   now: Date,
+  updatedAtByWord: ProgressInput["selectionUpdatedAt"] = {},
 ): MobileSelection[] {
   if (!input) return [];
   if (Array.isArray(input)) return input;
 
-  const updatedAt = now.toISOString();
+  const fallbackUpdatedAt = now.toISOString();
   return Object.entries(input).map(([wordId, mnemonicId]) => ({
     wordId: Number(wordId),
     mnemonicId,
-    updatedAt,
+    updatedAt: isTimestamp(updatedAtByWord?.[wordId])
+      ? updatedAtByWord[wordId]
+      : fallbackUpdatedAt,
   }));
 }
 
-function normalizeSettings(input: ProgressInput["settings"], now: Date): MobileSettings | null {
+function normalizeSettings(
+  input: ProgressInput["settings"],
+  now: Date,
+  settingsUpdatedAt?: string,
+): MobileSettings | null {
   if (!input) return null;
   return {
     dailyGoal: input.dailyGoal,
     hintsEnabled: input.hintsEnabled,
     reducedMotion: input.reducedMotion,
     ttsRate: input.ttsRate,
-    updatedAt: input.updatedAt ?? now.toISOString(),
+    updatedAt: input.updatedAt ?? (isTimestamp(settingsUpdatedAt)
+      ? settingsUpdatedAt
+      : now.toISOString()),
   };
 }
 
@@ -352,8 +388,16 @@ export async function applyProgress(userId: string, input: ProgressInput): Promi
   const now = new Date();
   const cards = input.cards ?? [];
   const reviews = input.reviews ?? [];
-  const selections = normalizeSelections(input.selections, now);
-  const settings = normalizeSettings(input.settings, now);
+  const selections = normalizeSelections(
+    input.selections,
+    now,
+    input.selectionUpdatedAt,
+  );
+  const settings = normalizeSettings(
+    input.settings,
+    now,
+    input.settingsUpdatedAt,
+  );
   const userMnemonics = input.userMnemonics ?? [];
 
   await db.transaction(async (tx) => {
@@ -457,7 +501,7 @@ export async function applyProgress(userId: string, input: ProgressInput): Promi
             deletedAt: values.deletedAt,
             rev: values.rev,
           },
-          setWhere: sql`${userMnemonicsTable.rev} < excluded.rev or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} < excluded.updated_at) or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} = excluded.updated_at and ${userMnemonicsTable.deletedAt} is null and excluded.deleted_at is not null)`,
+          setWhere: sql`(${userMnemonicsTable.userId} = excluded.user_id) and (${userMnemonicsTable.rev} < excluded.rev or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} < excluded.updated_at) or (${userMnemonicsTable.rev} = excluded.rev and ${userMnemonicsTable.updatedAt} = excluded.updated_at and ${userMnemonicsTable.deletedAt} is null and excluded.deleted_at is not null))`,
         });
     }
   });

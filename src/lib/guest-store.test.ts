@@ -19,6 +19,7 @@ import {
   resolveMnemonicFromState,
   selectMnemonicInState,
   setLocalMediaMetaInState,
+  updateSettingsInState,
   updateUserMnemonicInState,
   type GuestState,
 } from "@/lib/guest-store";
@@ -90,6 +91,8 @@ describe("migrateGuestState", () => {
     expect(migrated.cards).toEqual(v1State.cards);
     expect(migrated.reviews).toEqual(v1State.reviews);
     expect(migrated.selections).toEqual(v1State.selections);
+    expect(migrated.selectionUpdatedAt).toEqual({});
+    expect(migrated.settingsUpdatedAt).toBe("1970-01-01T00:00:00.000Z");
     expect(migrated.updatedAt).toBe(v1State.updatedAt);
     expect(migrated.settings).toEqual({
       ...defaultSettings,
@@ -446,5 +449,82 @@ describe("selectMnemonicInState", () => {
     expect(result).toBeNull();
     expect(created.state.cards).toEqual({});
     expect(created.state.selections).toEqual({});
+  });
+});
+
+describe("local timestamps", () => {
+  it("records a selection timestamp and does not bump it for the same value", () => {
+    const first = requiredState(
+      selectMnemonicInState(
+        migrateGuestState(null),
+        word.id,
+        firstBuiltin.id,
+        "initial",
+        NOW,
+      ),
+    );
+    const repeated = requiredState(
+      selectMnemonicInState(
+        first,
+        word.id,
+        firstBuiltin.id,
+        "replace",
+        LATER,
+      ),
+    );
+
+    expect(first.selectionUpdatedAt[String(word.id)]).toBe(NOW.toISOString());
+    expect(repeated.selectionUpdatedAt[String(word.id)]).toBe(NOW.toISOString());
+    expect(repeated.updatedAt).toBe(first.updatedAt);
+  });
+
+  it("advances the selection timestamp when the preference changes", () => {
+    const first = requiredState(
+      selectMnemonicInState(
+        migrateGuestState(null),
+        word.id,
+        firstBuiltin.id,
+        "initial",
+        NOW,
+      ),
+    );
+    const changed = requiredState(
+      selectMnemonicInState(
+        first,
+        word.id,
+        secondBuiltin.id,
+        "replace",
+        LATER,
+      ),
+    );
+
+    expect(changed.selectionUpdatedAt[String(word.id)]).toBe(
+      LATER.toISOString(),
+    );
+  });
+
+  it("does not bump settingsUpdatedAt for unchanged or non-sync settings", () => {
+    const state = migrateGuestState(null);
+    const unchanged = updateSettingsInState(
+      state,
+      { dailyGoal: state.settings.dailyGoal },
+      NOW,
+    );
+    const consentOnly = updateSettingsInState(
+      state,
+      { contributionConsent: "granted" },
+      NOW,
+    );
+    const changed = updateSettingsInState(
+      state,
+      { dailyGoal: 20 },
+      LATER,
+    );
+
+    expect(unchanged).toBe(state);
+    expect(consentOnly.settings.contributionConsent).toBe("granted");
+    expect(consentOnly.settingsUpdatedAt).toBe(state.settingsUpdatedAt);
+    expect(changed.settingsUpdatedAt).toBe(LATER.toISOString());
+    expect(changed.updatedAt).toBe(LATER.toISOString());
   });
 });

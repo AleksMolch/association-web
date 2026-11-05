@@ -72,8 +72,21 @@ const mocks = vi.hoisted(() => {
   };
 });
 
-vi.mock("@/lib/db", () => ({ db: mocks.db }));
+const routeMocks = vi.hoisted(() => ({
+  getServerSession: vi.fn(),
+  requireVip: vi.fn(),
+}));
 
+vi.mock("@/lib/db", () => ({ db: mocks.db }));
+vi.mock("@/lib/server/session", () => ({
+  getServerSession: routeMocks.getServerSession,
+}));
+vi.mock("@/lib/server/entitlement", () => ({
+  requireVip: routeMocks.requireVip,
+}));
+
+import { POST as postMobileSync } from "@/app/api/mobile/sync/route";
+import { POST as postWebProgress } from "@/app/api/progress/route";
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 import type { CardRow } from "@/lib/types";
 import { syncBodySchema } from "@/lib/api/schemas";
@@ -302,6 +315,21 @@ describe("user mnemonic mapping", () => {
 
     expect(values.id).toBe("user-1:client-mnemonic-1");
   });
+
+  it("strips any foreign prefix and re-prefixes with the session owner", () => {
+    const values = toUserMnemonicInsert(
+      "user-1",
+      mnemonic({ id: "user-2:client-mnemonic-1" }),
+    );
+    const nested = toUserMnemonicInsert(
+      "user-1",
+      mnemonic({ id: "user-2:user-3:client-mnemonic-1" }),
+    );
+
+    expect(values.id).toBe("user-1:client-mnemonic-1");
+    expect(values.userId).toBe("user-1");
+    expect(nested.id).toBe("user-1:client-mnemonic-1");
+  });
 });
 
 describe("mobile settings mapping", () => {
@@ -508,8 +536,31 @@ describe("applyProgress database operations", () => {
       rev: 4,
     });
     expect(normalizedSql(write.conflict.config.setWhere)).toBe(
-      "user_mnemonics.rev < excluded.rev or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at < excluded.updated_at) or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at = excluded.updated_at and user_mnemonics.deleted_at is null and excluded.deleted_at is not null)",
+      "(user_mnemonics.user_id = excluded.user_id) and (user_mnemonics.rev < excluded.rev or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at < excluded.updated_at) or (user_mnemonics.rev = excluded.rev and user_mnemonics.updated_at = excluded.updated_at and user_mnemonics.deleted_at is null and excluded.deleted_at is not null))",
     );
+  });
+
+  it("accepts explicit selection and settings timestamps for web clients", async () => {
+    const selectionUpdatedAt = "2026-11-04T08:00:00.000Z";
+    const settingsUpdatedAt = "2026-11-04T09:00:00.000Z";
+
+    await applyProgress("user-a", {
+      selections: { "7": "mnemonic-7" },
+      selectionUpdatedAt: { "7": selectionUpdatedAt },
+      settings: {
+        dailyGoal: 15,
+        hintsEnabled: false,
+        reducedMotion: true,
+        ttsRate: 1.1,
+      },
+      settingsUpdatedAt,
+    });
+
+    const [selectionWrite] = writesFor(selectionsTable);
+    const [settingsWrite] = writesFor(settingsTable);
+
+    expect(selectionWrite?.values.updatedAt).toEqual(new Date(selectionUpdatedAt));
+    expect(settingsWrite?.values.updatedAt).toEqual(new Date(settingsUpdatedAt));
   });
 
   it("inserts duplicate reviews idempotently by server review id", async () => {
@@ -615,6 +666,8 @@ describe("web progress compatibility", () => {
     expect(toWebProgress(state)).toEqual({
       cards: [],
       selections: { "7": "1-1" },
+      selectionUpdatedAt: { "7": "2026-11-04T00:00:00.000Z" },
+      settingsUpdatedAt: "2026-11-04T00:00:00.000Z",
       settings: {
         dailyGoal: 15,
         hintsEnabled: false,
@@ -645,5 +698,83 @@ describe("web progress compatibility", () => {
     });
 
     expect(parsed.userMnemonics).toEqual([]);
+    expect(parsed.selectionUpdatedAt).toEqual({});
+    expect(parsed.settingsUpdatedAt).toBeUndefined();
+  });
+});
+
+describe("sync routes reject foreign mnemonic ids", () => {
+  const session = { user: { id: "user-a" } };
+  const settings = {
+    dailyGoal: 10 as const,
+    hintsEnabled: true,
+    reducedMotion: false,
+    ttsRate: 0.95,
+  };
+  const foreignActive = mnemonic({
+    id: "user-b:known-mnemonic",
+    rev: 5,
+    updatedAt: "2026-11-05T00:00:00.000Z",
+  });
+  const foreignTombstone = mnemonic({
+    id: "user-b:known-tombstone",
+    rev: 6,
+    updatedAt: "2026-11-05T01:00:00.000Z",
+    deletedAt: "2026-11-05T01:00:00.000Z",
+  });
+
+  function request(url: string, body: unknown) {
+    return new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  async function assertOwnerScoped(post: (request: Request) => Promise<Response>, body: unknown) {
+    routeMocks.getServerSession.mockResolvedValue(session);
+    routeMocks.requireVip.mockResolvedValue(true);
+
+    const response = await post(request("http://localhost/api/sync", body));
+
+    expect(response.status).toBe(200);
+    const writes = writesFor(userMnemonicsTable);
+    expect(writes).toHaveLength(2);
+    expect(writes.map((write) => write.values.id)).toEqual([
+      "user-a:known-mnemonic",
+      "user-a:known-tombstone",
+    ]);
+    for (const write of writes) {
+      expect(write.values.userId).toBe("user-a");
+      expect(String(write.values.id).startsWith("user-b:")).toBe(false);
+      expect(write.conflict?.kind).toBe("update");
+      if (write.conflict?.kind !== "update") throw new Error("expected upsert");
+      expect(normalizedSql(write.conflict.config.setWhere)).toContain(
+        "user_mnemonics.user_id = excluded.user_id",
+      );
+    }
+  }
+
+  it("ignores a foreign id and tombstone via POST /api/progress", async () => {
+    await assertOwnerScoped(postWebProgress, {
+      cards: [],
+      selections: {},
+      settings,
+      reviews: [],
+      userMnemonics: [foreignActive, foreignTombstone],
+    });
+  });
+
+  it("ignores a foreign id and tombstone via POST /api/mobile/sync", async () => {
+    await assertOwnerScoped(postMobileSync, {
+      cards: [],
+      reviews: [],
+      selections: [],
+      settings: {
+        ...settings,
+        updatedAt: "2026-11-05T02:00:00.000Z",
+      },
+      userMnemonics: [foreignActive, foreignTombstone],
+    });
   });
 });

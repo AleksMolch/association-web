@@ -15,6 +15,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useSession } from "@/lib/auth-client";
+import {
+  ACCOUNT_MISMATCH_MESSAGE,
+  assessGuestOwner,
+  readGuestOwner,
+  writeGuestOwner,
+} from "@/lib/guest-owner";
 import { useGuest } from "@/lib/guest-store";
 import {
   buildProgressPayload,
@@ -39,6 +45,7 @@ export function SyncLocal() {
   const {
     cards,
     userMnemonics,
+    settings,
     ready,
     applyServerProgress,
   } = useGuest();
@@ -64,6 +71,18 @@ export function SyncLocal() {
         toast.error("Сессия истекла. Войдите заново.");
         return;
       }
+
+      const ownerDecision = assessGuestOwner(readGuestOwner(), userId, {
+        settings,
+        userMnemonics,
+      });
+
+      if (ownerDecision === "mismatch") {
+        toast.error(ACCOUNT_MISMATCH_MESSAGE);
+        return;
+      }
+
+      if (ownerDecision === "claim") writeGuestOwner(userId);
 
       const server = await pullProgress();
       const merged = applyServerProgress(userId, server);

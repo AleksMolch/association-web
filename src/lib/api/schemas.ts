@@ -81,7 +81,12 @@ export const mobileReviewRowSchema = reviewRowSchema
 export const syncBodySchema = z.object({
   cards: z.array(cardRowSchema).max(5000),
   selections: z.record(z.string(), z.string().max(128)),
+  selectionUpdatedAt: z
+    .record(z.string(), isoDateSchema)
+    .optional()
+    .default({}),
   settings: settingsSchema,
+  settingsUpdatedAt: isoDateSchema.optional(),
   reviews: z.array(reviewRowSchema).max(10000),
   userMnemonics: z.array(userMnemonicSyncSchema).max(5000).optional().default([]),
 });

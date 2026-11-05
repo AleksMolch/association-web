@@ -17,6 +17,8 @@ pnpm db:migrate
 
 Миграция `0001_milky_northstar.sql` добавляет `user_mnemonics`, `contribution_preferences`, `mnemonic_contributions` и поля `reviews.exercise_type/answer`. Применяйте её до деплоя приложения, использующего личные ассоциации и вклады.
 
+Release gate: автоматический прогон миграции против PostgreSQL не входит в unit-тесты репозитория (нет PostgreSQL в CI). Перед production примените миграцию к копии реальной схемы, проверьте `user_mnemonics`, `contribution_preferences`, `mnemonic_contributions`, `reviews.exercise_type/answer` и только затем деплойте приложение.
+
 Проверка подключения:
 
 ```bash

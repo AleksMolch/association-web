@@ -8,7 +8,7 @@
  */
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,12 @@ import {
   type ContributionPreference,
 } from "@/features/contributions/preference-client";
 import { useSession } from "@/lib/auth-client";
+import {
+  ACCOUNT_MISMATCH_MESSAGE,
+  assessGuestOwner,
+  readGuestOwner,
+  writeGuestOwner,
+} from "@/lib/guest-owner";
 import { useGuest } from "@/lib/guest-store";
 import type { Settings } from "@/lib/types";
 
@@ -77,6 +83,7 @@ export default function DashboardSettingsPage() {
   const [withdrawing, setWithdrawing] = useState(false);
   const decisionVersionRef = useRef(0);
   const settingsRef = useRef(settings);
+  const userMnemonicsRef = useRef(userMnemonics);
   const loading = Boolean(sessionUserId) && loadedUserId !== sessionUserId;
 
   useEffect(() => {
@@ -84,12 +91,11 @@ export default function DashboardSettingsPage() {
   }, [settings]);
 
   useEffect(() => {
-    if (!ready || !sessionUserId) return;
+    userMnemonicsRef.current = userMnemonics;
+  }, [userMnemonics]);
 
-    let active = true;
-    const versionAtStart = decisionVersionRef.current;
-
-    const applyPreference = (preference: ContributionPreference) => {
+  const applyPreference = useCallback(
+    (preference: ContributionPreference) => {
       const applied = applyPreferenceToSettings(
         settingsRef.current,
         preference,
@@ -100,13 +106,47 @@ export default function DashboardSettingsPage() {
         contributionConsentVersion: applied.contributionConsentVersion,
         contributionNextPromptAt: applied.contributionNextPromptAt,
       });
-    };
+    },
+    [updateSettings],
+  );
+
+  const ownerDecision = useCallback(
+    (userId: string) =>
+      assessGuestOwner(readGuestOwner(), userId, {
+        settings: settingsRef.current,
+        userMnemonics: userMnemonicsRef.current,
+      }),
+    [],
+  );
+
+  const applyServerPreferenceAfterMismatch = useCallback(() => {
+    toast.error(ACCOUNT_MISMATCH_MESSAGE);
+    void getContributionPreference()
+      .then((preference) => applyPreference(preference))
+      .catch(() => undefined);
+  }, [applyPreference]);
+
+  useEffect(() => {
+    if (!ready || !sessionUserId) return;
+
+    let active = true;
+    const versionAtStart = decisionVersionRef.current;
 
     getContributionPreference()
       .then((preference) => {
         if (!active || decisionVersionRef.current !== versionAtStart) return;
 
         setLoadedUserId(sessionUserId);
+
+        const owner = ownerDecision(sessionUserId);
+
+        if (owner === "mismatch") {
+          applyPreference(preference);
+          toast.error(ACCOUNT_MISMATCH_MESSAGE);
+          return;
+        }
+
+        if (owner === "claim") writeGuestOwner(sessionUserId);
 
         const reconciliation = reconcileConsentPreference(
           settingsRef.current.contributionConsent,
@@ -170,9 +210,20 @@ export default function DashboardSettingsPage() {
     return () => {
       active = false;
     };
-  }, [ready, sessionUserId, updateSettings]);
+  }, [applyPreference, ownerDecision, ready, sessionUserId, updateSettings]);
 
   function applyConsent(action: ConsentAction) {
+    if (sessionUserId) {
+      const owner = ownerDecision(sessionUserId);
+
+      if (owner === "mismatch") {
+        applyServerPreferenceAfterMismatch();
+        return;
+      }
+
+      if (owner === "claim") writeGuestOwner(sessionUserId);
+    }
+
     const version = decisionVersionRef.current + 1;
     decisionVersionRef.current = version;
     if (sessionUserId) setLoadedUserId(sessionUserId);
@@ -246,7 +297,7 @@ export default function DashboardSettingsPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <p className="text-sm text-muted">Локальные настройки · это устройство</p>
+        <p className="text-sm text-muted">Настройки · это устройство и аккаунт</p>
         <h1 className="font-serif text-3xl font-semibold text-ink sm:text-4xl">Настройки</h1>
       </div>
 
@@ -369,8 +420,9 @@ export default function DashboardSettingsPage() {
         <CardHeader>
           <CardTitle>Аккаунт и данные</CardTitle>
           <CardDescription>
-            Сейчас прогресс хранится только в этом браузере. Войдите, чтобы
-            сохранить его в облаке и синхронизировать между устройствами.
+            Без входа прогресс хранится только в этом браузере. После входа
+            карточки, настройки и текст личных ассоциаций можно синхронизировать
+            с аккаунтом; изображения остаются только на исходном устройстве.
           </CardDescription>
         </CardHeader>
         <div className="flex flex-wrap gap-2">

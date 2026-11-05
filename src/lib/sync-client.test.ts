@@ -368,6 +368,82 @@ describe("mergeServerProgress", () => {
 
     expect(local.state.settings.dailyGoal).toBe(5);
   });
+
+  it("lets a newer server selection and settings win by strict timestamp", () => {
+    const state = baseState({
+      selections: { "1": "builtin-web" },
+      selectionUpdatedAt: { "1": EARLIER },
+      settings: { ...defaultSettings, dailyGoal: 5 },
+      settingsUpdatedAt: EARLIER,
+    });
+    const serverSettings = {
+      ...defaultSettings,
+      dailyGoal: 20 as const,
+      ttsRate: 1.3,
+    };
+
+    const result = mergeServerProgress(
+      state,
+      {
+        selections: { "1": "usr-mobile" },
+        selectionUpdatedAt: { "1": LATER },
+        settings: serverSettings,
+        settingsUpdatedAt: LATER,
+      },
+      USER_ID,
+      NOW,
+    );
+
+    expect(result.state.selections["1"]).toBe("usr-mobile");
+    expect(result.state.selectionUpdatedAt["1"]).toBe(LATER);
+    expect(result.state.settings).toMatchObject({
+      dailyGoal: 20,
+      ttsRate: 1.3,
+    });
+    expect(result.state.settingsUpdatedAt).toBe(LATER);
+    expect(result.pulled.selections).toBe(1);
+  });
+
+  it("keeps newer web selections and settings and pushes their timestamps", () => {
+    const state = baseState({
+      selections: { "1": "builtin-web" },
+      selectionUpdatedAt: { "1": LATER },
+      settings: { ...defaultSettings, dailyGoal: 5 },
+      settingsUpdatedAt: LATER,
+    });
+
+    const result = mergeServerProgress(
+      state,
+      {
+        selections: { "1": "usr-mobile" },
+        selectionUpdatedAt: { "1": EARLIER },
+        settings: { ...defaultSettings, dailyGoal: 20 },
+        settingsUpdatedAt: EARLIER,
+      },
+      USER_ID,
+      NOW,
+    );
+    const payload = buildProgressPayload(result.state);
+
+    expect(result.state.selections["1"]).toBe("builtin-web");
+    expect(result.state.settings.dailyGoal).toBe(5);
+    expect(payload.selectionUpdatedAt["1"]).toBe(LATER);
+    expect(payload.settingsUpdatedAt).toBe(LATER);
+    expect(payload.selections["1"]).toBe("builtin-web");
+    expect(payload.settings.dailyGoal).toBe(5);
+  });
+
+  it("keeps legacy local selections when timestamps are absent", () => {
+    const result = mergeServerProgress(
+      baseState({ selections: { "1": "builtin-web" } }),
+      { selections: { "1": "usr-mobile" } },
+      USER_ID,
+      NOW,
+    );
+
+    expect(result.state.selections["1"]).toBe("builtin-web");
+    expect(result.state.selectionUpdatedAt["1"]).toBeUndefined();
+  });
 });
 
 describe("mergeServerUserMnemonicsInState", () => {
@@ -459,6 +535,24 @@ describe("buildProgressPayload", () => {
     expect(serialized).not.toContain("private.png");
     expect(serialized).not.toContain("localUri");
     expect(serialized).not.toContain("blob");
+  });
+
+  it("includes selection and settings timestamps only for current values", () => {
+    const state = baseState({
+      selections: { "1": "builtin-1", "2": "builtin-2" },
+      selectionUpdatedAt: {
+        "1": EARLIER,
+        "2": "not-a-date",
+        "3": LATER,
+      },
+      settings: { ...defaultSettings, dailyGoal: 20 },
+      settingsUpdatedAt: LATER,
+    });
+
+    const payload = buildProgressPayload(state);
+
+    expect(payload.selectionUpdatedAt).toEqual({ "1": EARLIER });
+    expect(payload.settingsUpdatedAt).toBe(LATER);
   });
 
   it("keeps merged state serializable without Blob data", () => {

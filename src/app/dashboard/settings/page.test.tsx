@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CONSENT_COPY, CONSENT_VERSION } from "@/features/contributions/consent";
+import { GUEST_OWNER_KEY } from "@/lib/guest-owner";
 import { defaultSettings } from "@/lib/types";
 
 import DashboardSettingsPage from "./page";
@@ -97,6 +98,7 @@ function mount(
   mocks.guest.current = {
     ready: true,
     settings: { ...settings },
+    userMnemonics: {},
     stats: { introduced: 0, totalWords: 100 },
     updateSettings: mocks.updateSettings,
     reset: mocks.reset,
@@ -110,6 +112,7 @@ function switchControl() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   mocks.session.current = {
     data: { user: { id: "user-a" } },
     isPending: false,
@@ -344,6 +347,41 @@ describe("Настройки → Конфиденциальность", () => {
         consentStatus: "granted",
       }),
     );
+  });
+
+  it("при другом владельце не отправляет согласие и применяет серверное", async () => {
+    window.localStorage.setItem(GUEST_OWNER_KEY, "user-b");
+    const fetchMock = installFetch(async (_url, init) => {
+      if (init?.method === "PUT") {
+        return jsonResponse(
+          serverPreference({
+            status: "granted",
+            consentVersion: CONSENT_VERSION,
+          }),
+        );
+      }
+      return jsonResponse(
+        serverPreference({
+          status: "declined",
+          consentVersion: CONSENT_VERSION,
+        }),
+      );
+    });
+    mount(true, {
+      ...defaultSettings,
+      contributionConsent: "granted",
+      contributionConsentVersion: CONSENT_VERSION,
+    });
+
+    await waitFor(() =>
+      expect(mocks.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ contributionConsent: "declined" }),
+      ),
+    );
+    expect(fetchMock.mock.calls.some((call) => call[1]?.method === "PUT")).toBe(
+      false,
+    );
+    expect(mocks.toast.error).toHaveBeenCalled();
   });
 
   it("без сессии не ходит в API и сохраняет решение локально", async () => {

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
+import { ACCOUNT_MISMATCH_MESSAGE, GUEST_OWNER_KEY } from "@/lib/guest-owner";
 import {
   createUserMnemonicInState,
   migrateGuestState,
@@ -54,6 +55,7 @@ function localState(): { state: GuestState; mnemonic: UserMnemonic } {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 afterEach(() => {
@@ -91,6 +93,7 @@ describe("SyncLocal", () => {
     mocks.guest.current = {
       ready: true,
       cards: state.cards,
+      settings: state.settings,
       userMnemonics: state.userMnemonics,
       applyServerProgress,
     };
@@ -138,5 +141,33 @@ describe("SyncLocal", () => {
     expect(screen.getByRole("status").textContent).toContain(
       "Получено: 0 карточек, 1 личных ассоциаций",
     );
+  });
+});
+
+describe("SyncLocal account owner", () => {
+  it("refuses to sync local personal text owned by another account", async () => {
+    const { state } = localState();
+    window.localStorage.setItem(GUEST_OWNER_KEY, "user-b");
+    const applyServerProgress = vi.fn();
+    mocks.guest.current = {
+      ready: true,
+      cards: state.cards,
+      settings: state.settings,
+      userMnemonics: state.userMnemonics,
+      applyServerProgress,
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<SyncLocal />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Синхронизировать прогресс" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.toast.error).toHaveBeenCalledWith(ACCOUNT_MISMATCH_MESSAGE),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(applyServerProgress).not.toHaveBeenCalled();
   });
 });
