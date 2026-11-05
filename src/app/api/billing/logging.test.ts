@@ -42,10 +42,16 @@ function postRequest(path: string, body: unknown): Request {
 function loggedText(spy: ReturnType<typeof vi.spyOn>): string {
   return spy.mock.calls
     .flat()
-    .map((value: unknown) =>
-      typeof value === "string" ? value : JSON.stringify(value) ?? String(value),
-    )
+    .map((value: unknown) => String(value))
     .join(" ");
+}
+
+function expectOnlyStringArguments(
+  spy: ReturnType<typeof vi.spyOn>,
+): void {
+  const args = spy.mock.calls.flat();
+  expect(args.length).toBeGreaterThan(0);
+  expect(args.every((value: unknown) => typeof value === "string")).toBe(true);
 }
 
 beforeEach(() => {
@@ -78,6 +84,7 @@ describe("billing route logging", () => {
     );
 
     expect(response.status).toBe(502);
+    expectOnlyStringArguments(errorSpy);
     const logged = loggedText(errorSpy);
     expect(logged).toContain("[billing:create-payment]");
     expect(logged).not.toContain(marker);
@@ -98,6 +105,7 @@ describe("billing route logging", () => {
     );
 
     expect(response.status).toBe(500);
+    expectOnlyStringArguments(errorSpy);
     const logged = loggedText(errorSpy);
     expect(logged).toContain("[billing:webhook]");
     expect(logged).not.toContain(marker);
@@ -115,6 +123,7 @@ describe("billing route logging", () => {
     );
 
     expect(response.status).toBe(503);
+    expectOnlyStringArguments(errorSpy);
     const logged = loggedText(errorSpy);
     expect(logged).toContain("[billing:status]");
     expect(logged).not.toContain(marker);
