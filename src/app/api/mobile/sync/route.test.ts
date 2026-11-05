@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getServerSession: vi.fn(),
@@ -59,6 +59,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.loadProgress.mockResolvedValue(state);
   mocks.applyProgress.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe("GET /api/mobile/sync", () => {
@@ -150,6 +154,43 @@ describe("POST /api/mobile/sync", () => {
 
     expect(response.status).toBe(400);
     expect(mocks.applyProgress).not.toHaveBeenCalled();
+  });
+
+  it("does not log personal mnemonic text when persistence fails", async () => {
+    const marker = `уникальная-сцена-${crypto.randomUUID()}`;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.getServerSession.mockResolvedValue(session);
+    mocks.requireVip.mockResolvedValue(true);
+    mocks.applyProgress.mockRejectedValueOnce(
+      new Error(`transaction failed for ${marker}`),
+    );
+
+    const response = await POST(
+      postRequest({
+        ...validBody,
+        userMnemonics: [
+          {
+            id: "mnemonic-1",
+            wordId: 1,
+            meaningId: "1",
+            cueWord: "Ключ",
+            sceneText: marker,
+            locale: "ru",
+            createdAt: "2026-11-04T00:00:00.000Z",
+            updatedAt: "2026-11-04T00:00:00.000Z",
+            deletedAt: null,
+            rev: 1,
+          },
+        ],
+      }),
+    );
+
+    expect(response.status).toBe(503);
+    const logged = errorSpy.mock.calls
+      .flat()
+      .map((value) => String(value))
+      .join(" ");
+    expect(logged).not.toContain(marker);
   });
 
   it("rejects user mnemonic media or uri fields", async () => {

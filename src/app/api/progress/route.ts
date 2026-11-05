@@ -22,8 +22,8 @@ export async function GET() {
     const session = await getServerSession();
     if (!session) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     return NextResponse.json(toWebProgress(await loadProgress(session.user.id)));
-  } catch (error) {
-    console.error("[progress:GET]", error);
+  } catch {
+    console.error("[progress:GET] request failed");
     return NextResponse.json({ error: "PROGRESS_UNAVAILABLE" }, { status: 503 });
   }
 }
@@ -41,8 +41,8 @@ export async function POST(request: Request) {
     const userId = session.user.id;
     await applyProgress(userId, parsed.data);
     return NextResponse.json(toWebProgress(await loadProgress(userId)));
-  } catch (error) {
-    console.error("[progress:POST]", error);
+  } catch {
+    console.error("[progress:POST] request failed");
     return NextResponse.json({ error: "SYNC_FAILED" }, { status: 503 });
   }
 }
@@ -59,8 +59,8 @@ export async function DELETE() {
       await tx.delete(settingsTable).where(eq(settingsTable.userId, userId));
     });
     return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error("[progress:DELETE]", error);
+  } catch {
+    console.error("[progress:DELETE] request failed");
     return NextResponse.json({ error: "DELETE_FAILED" }, { status: 503 });
   }
 }

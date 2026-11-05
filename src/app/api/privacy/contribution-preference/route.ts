@@ -22,8 +22,8 @@ export async function GET() {
     const session = await getServerSession();
     if (!session) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
     return NextResponse.json(await getContributionPreference(session.user.id));
-  } catch (error) {
-    console.error("[contribution-preference:GET]", error);
+  } catch {
+    console.error("[contribution-preference:GET] request failed");
     return NextResponse.json({ error: "PREFERENCE_UNAVAILABLE" }, { status: 503 });
   }
 }
@@ -44,8 +44,8 @@ export async function PUT(request: Request) {
     }
 
     return NextResponse.json(await setContributionPreference(session.user.id, parsed.data));
-  } catch (error) {
-    console.error("[contribution-preference:PUT]", error);
+  } catch {
+    console.error("[contribution-preference:PUT] request failed");
     return NextResponse.json({ error: "PREFERENCE_UPDATE_FAILED" }, { status: 503 });
   }
 }

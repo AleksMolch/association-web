@@ -43,8 +43,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (!updated) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
     return NextResponse.json(updated);
-  } catch (error) {
-    console.error("[user-mnemonics:PATCH]", error);
+  } catch {
+    console.error("[user-mnemonics:PATCH] request failed");
     return NextResponse.json({ error: "USER_MNEMONIC_UPDATE_FAILED" }, { status: 503 });
   }
 }
@@ -59,8 +59,8 @@ export async function DELETE(_request: Request, context: RouteContext) {
     if (!deleted) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
     return NextResponse.json(deleted);
-  } catch (error) {
-    console.error("[user-mnemonics:DELETE]", error);
+  } catch {
+    console.error("[user-mnemonics:DELETE] request failed");
     return NextResponse.json({ error: "USER_MNEMONIC_DELETE_FAILED" }, { status: 503 });
   }
 }

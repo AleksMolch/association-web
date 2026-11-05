@@ -9,16 +9,20 @@
 - публичные страницы: лендинг, метод, наука, демо, тарифы, оферта, политика, условия;
 - гостевой тренажёр с локальным прогрессом в `localStorage`;
 - личный кабинет: обзор, прогресс, слова, карточка слова, настройки;
-- Better Auth: регистрация, вход, сброс пароля, подтверждение email;
+- Better Auth: регистрация, вход, сброс пароля, подтверждение email, Expo-клиент;
 - API облачного прогресса с last-write-wins по `rev`;
+- личные ассоциации: текст, выбор, тренировка, tombstone;
+- локальные изображения личных ассоциаций в IndexedDB (не загружаются на сервер);
+- VIP-гейт для мобильной синхронизации `/api/mobile/sync`;
+- согласие на текстовые вклады, batch/withdraw, очереди и модерация;
 - ЮKassa: создание платежа, webhook, подписка VIP;
-- read-only админка;
-- тесты FSRS и целостности контента.
+- админка с очередью модерации вкладов;
+- тесты FSRS, API, безопасности и целостности контента.
 
 Требуют настройки перед production:
 
-- PostgreSQL и миграции;
-- `BETTER_AUTH_SECRET`, `DATABASE_URL`;
+- PostgreSQL и миграции (включая `0001`);
+- `BETTER_AUTH_SECRET`, `DATABASE_URL`, `MODERATION_PSEUDONYM_SECRET`;
 - Resend для писем;
 - магазин ЮKassa и публичный webhook;
 - юридические тексты, 152-ФЗ и 54-ФЗ;
@@ -31,6 +35,7 @@
 - Better Auth + Drizzle ORM + PostgreSQL;
 - `ts-fsrs` 6;
 - ЮKassa API v3;
+- IndexedDB для локальных изображений;
 - Vitest.
 
 ## Быстрый старт
@@ -45,11 +50,6 @@ pnpm dev
 ```
 
 Откройте `http://localhost:3000`. Гостевой режим и публичные страницы работают без БД. Для входа, облака, админки и оплаты заполните `.env.local` и примените схему.
-
-```bash
-pnpm db:generate
-pnpm db:migrate
-```
 
 ## Скрипты
 
@@ -85,7 +85,7 @@ pnpm db:migrate
 
 Auth: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-email`.
 
-Служебные: `/admin`, `/api/auth/[...all]`, `/api/progress`, `/api/billing/*`.
+Служебные: `/admin`, `/admin/contributions`, `/api/auth/[...all]`, `/api/progress`, `/api/mobile/sync`, `/api/user-mnemonics`, `/api/privacy/contribution-preference`, `/api/mnemonic-contributions/*`, `/api/admin/mnemonic-contributions`, `/api/billing/*`.
 
 ## Документация
 
@@ -93,6 +93,8 @@ Auth: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-ema
 - [Стек](docs/STACK.md)
 - [Модель данных](docs/DATA_MODEL.md)
 - [Аутентификация](docs/AUTH.md)
+- [Пользовательские ассоциации](docs/USER_MNEMONICS.md)
+- [Приватность](docs/PRIVACY.md)
 - [ЮKassa](docs/BILLING_YOOKASSA.md)
 - [Синхронизация](docs/SYNC_PROTOCOL.md)
 - [Дизайн-система](docs/DESIGN_SYSTEM.md)
@@ -105,6 +107,10 @@ Auth: `/login`, `/register`, `/forgot-password`, `/reset-password`, `/verify-ema
 ## Ограничения
 
 - Автопродление подписок не реализовано: продление вручную добавляет срок.
-- Админка read-only.
+- Возвраты через UI не реализованы.
+- Админка контента read-only; модерация вкладов не публикует контент автоматически.
+- Изображения личных ассоциаций не синхронизируются и не входят в backup.
+- Rate limit вкладов действует в пределах одного процесса.
+- CSP пока не настроен; действуют базовые security headers.
 - Юридические страницы — шаблоны, не юридическая консультация.
 - Мобильное приложение находится в отдельном репозитории и не входит в этот проект.

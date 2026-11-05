@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserMnemonic } from "@/features/user-mnemonics/types";
 
@@ -157,6 +157,10 @@ beforeEach(() => {
   mocks.getServerSession.mockResolvedValue(session);
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("authentication", () => {
   it("returns 401 for every handler without a session", async () => {
     mocks.getServerSession.mockResolvedValue(null);
@@ -279,6 +283,25 @@ describe("POST /api/user-mnemonics", () => {
       expect(response.status).toBe(400);
     }
     expect(mocks.createUserMnemonic).not.toHaveBeenCalled();
+  });
+
+  it("does not log cue or scene text when persistence fails", async () => {
+    const marker = `уникальная-сцена-${crypto.randomUUID()}`;
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.createUserMnemonic.mockRejectedValueOnce(
+      new Error(`insert failed for ${marker}`),
+    );
+
+    const response = await POST(
+      request("POST", { ...validBody, sceneText: marker }),
+    );
+
+    expect(response.status).toBe(503);
+    const logged = errorSpy.mock.calls
+      .flat()
+      .map((value) => String(value))
+      .join(" ");
+    expect(logged).not.toContain(marker);
   });
 });
 

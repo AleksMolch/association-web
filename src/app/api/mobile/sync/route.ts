@@ -21,8 +21,8 @@ export async function GET() {
     }
 
     return NextResponse.json(await loadProgress(session.user.id));
-  } catch (error) {
-    console.error("[mobile/sync:GET]", error);
+  } catch {
+    console.error("[mobile/sync:GET] request failed");
     return NextResponse.json({ error: "SYNC_FAILED" }, { status: 503 });
   }
 }
@@ -43,8 +43,8 @@ export async function POST(request: Request) {
     const userId = session.user.id;
     await applyProgress(userId, parsed.data);
     return NextResponse.json(await loadProgress(userId));
-  } catch (error) {
-    console.error("[mobile/sync:POST]", error);
+  } catch {
+    console.error("[mobile/sync:POST] request failed");
     return NextResponse.json({ error: "SYNC_FAILED" }, { status: 503 });
   }
 }

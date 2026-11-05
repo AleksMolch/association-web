@@ -54,6 +54,29 @@ describe("detectSensitiveContent", () => {
     ).toEqual({ email: false, phone: false, url: false });
   });
 
+  it("does not treat numeric dates, times and decimals as URLs or phones", () => {
+    expect(
+      detectSensitiveContent(
+        "5.11.2026, 12.12.2026 15:30, 3.14 и 0.5 — просто числа",
+      ),
+    ).toEqual({ email: false, phone: false, url: false });
+  });
+
+  it("does not treat abbreviations and version numbers as URLs", () => {
+    expect(
+      detectSensitiveContent("e.g. пример, i.e. уточнение, версия v1.2.3"),
+    ).toEqual({ email: false, phone: false, url: false });
+  });
+
+  it("still flags short domains with an alphabetic TLD", () => {
+    expect(detectSensitiveContent("Смотри t.me/association")).toMatchObject({
+      url: true,
+    });
+    expect(detectSensitiveContent("Сайт example.io")).toMatchObject({
+      url: true,
+    });
+  });
+
   it("does not report a URL for the domain part of an email", () => {
     expect(detectSensitiveContent("mail me at test@example.com")).toEqual({
       email: true,

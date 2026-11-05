@@ -38,8 +38,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.json(await listUserMnemonics(session.user.id, wordId));
-  } catch (error) {
-    console.error("[user-mnemonics:GET]", error);
+  } catch {
+    console.error("[user-mnemonics:GET] request failed");
     return NextResponse.json({ error: "USER_MNEMONICS_UNAVAILABLE" }, { status: 503 });
   }
 }
@@ -63,8 +63,8 @@ export async function POST(request: Request) {
 
     const created = await createUserMnemonic(session.user.id, parsed.data);
     return NextResponse.json(created, { status: 201 });
-  } catch (error) {
-    console.error("[user-mnemonics:POST]", error);
+  } catch {
+    console.error("[user-mnemonics:POST] request failed");
     return NextResponse.json({ error: "USER_MNEMONIC_CREATE_FAILED" }, { status: 503 });
   }
 }
