@@ -1,10 +1,12 @@
 /**
- * email.ts — отправка писем через Resend.
+ * email.ts — отправка писем через SMTP.
  *
- * В разработке без ключа письмо не уходит, а в консоль пишется только факт
- * события (без токенов и ссылок). Для production задайте RESEND_API_KEY и
- * EMAIL_FROM либо замените провайдера.
+ * Используется почтовый relay NetAngels (mail.netangels.ru). Секреты читаются
+ * только на сервере. В development без SMTP-конфигурации письмо не уходит,
+ * а в лог пишется только факт события без токенов и ссылок.
  */
+
+import nodemailer, { type Transporter } from "nodemailer";
 
 import { maskEmail, redactEmails } from "@/lib/redact";
 
@@ -15,38 +17,47 @@ type EmailInput = {
   html?: string;
 };
 
-export async function sendEmail({ to, subject, text, html }: EmailInput): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
+let cachedTransport: Transporter | null = null;
 
-  if (!apiKey || !from) {
+function getTransport(): Transporter | null {
+  const host = process.env.SMTP_HOST;
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const port = Number(process.env.SMTP_PORT ?? 465);
+  const secure = process.env.SMTP_SECURE !== "false";
+
+  if (!host || !user || !pass) return null;
+  if (cachedTransport) return cachedTransport;
+
+  cachedTransport = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+  });
+  return cachedTransport;
+}
+
+export async function sendEmail({ to, subject, text, html }: EmailInput): Promise<void> {
+  const from = process.env.EMAIL_FROM;
+  const transport = getTransport();
+
+  if (!transport || !from) {
     if (process.env.NODE_ENV !== "production") {
-      console.info("[email:dev] письмо не отправлено (нет RESEND_API_KEY/EMAIL_FROM)", {
+      console.info("[email:dev] письмо не отправлено (нет SMTP_HOST/SMTP_USER/SMTP_PASS/EMAIL_FROM)", {
         to: maskEmail(to),
         subject,
       });
-    } else {
-      console.error("[email] RESEND_API_KEY или EMAIL_FROM не заданы");
+      return;
     }
-    return;
+    throw new Error("SMTP не настроен");
   }
 
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from, to, subject, text, html }),
-  });
-
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    console.error(
-      "[email] Resend вернул ошибку",
-      response.status,
-      redactEmails(detail).slice(0, 300),
-    );
+  try {
+    await transport.sendMail({ from, to, subject, text, html });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error("[email] SMTP вернул ошибку", redactEmails(detail).slice(0, 300));
     throw new Error("Не удалось отправить письмо");
   }
 }

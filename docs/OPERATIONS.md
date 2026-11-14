@@ -37,7 +37,11 @@ psql "$DATABASE_URL" -c "select 1"
 | `MODERATION_PSEUDONYM_SECRET` | да в production | отдельный HMAC-секрет псевдонимных id авторов вкладов |
 | `APP_MOBILE_ORIGIN` | для mobile | origin Expo-схемы, можно несколько через запятую |
 | `DATABASE_URL` | да | PostgreSQL |
-| `RESEND_API_KEY` | для писем | сброс пароля, подтверждение email |
+| `SMTP_HOST` | для писем | `mail.netangels.ru` |
+| `SMTP_PORT` | для писем | 465 (TLS) или 587 (STARTTLS) |
+| `SMTP_SECURE` | для писем | `true` для 465 |
+| `SMTP_USER` | для писем | полный адрес ящика |
+| `SMTP_PASS` | для писем | пароль ящика |
 | `EMAIL_FROM` | для писем | подпись отправителя |
 | `YOOKASSA_SHOP_ID` | для оплаты | магазин ЮKassa |
 | `YOOKASSA_SECRET_KEY` | для оплаты | секретный ключ |
@@ -78,12 +82,12 @@ update "user" set role = 'admin' where email = 'admin@example.com';
 
 ## 5. Почта
 
-1. Создайте аккаунт Resend.
-2. Подтвердите домен отправителя.
-3. Задайте `RESEND_API_KEY` и `EMAIL_FROM`.
+1. Создайте ящик на `mail.netangels.ru` (например `support@mnemoslov.ru`).
+2. В DNS домена настройте MX, SPF, DKIM и DMARC.
+3. Задайте `SMTP_HOST=mail.netangels.ru`, `SMTP_PORT=465`, `SMTP_SECURE=true`, `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`.
 4. Проверьте сброс пароля и подтверждение email.
 
-Без ключей письма не отправляются. В development в лог пишется только факт события с маскированным получателем, без токенов и ссылок.
+Письма отправляются через Nodemailer по SMTP. Без SMTP-переменных письма не уходят. В development в лог пишется только факт события с маскированным получателем, без токенов и ссылок.
 
 В production `requireEmailVerification` включён: без рабочей почты пользователи не смогут войти после регистрации.
 
@@ -151,7 +155,7 @@ https://<домен>/api/billing/webhook
 | Mobile sync возвращает 403 | активную VIP-подписку пользователя |
 | Вклад не отправляется | согласие `granted`, очередь, rate limit, логи `[mnemonic-contributions:*]` |
 | Очередь модерации пуста | статус, `MODERATION_PSEUDONYM_SECRET`, миграцию `0001` |
-| Письмо не приходит | `RESEND_API_KEY`, `EMAIL_FROM`, домен, спам |
+| Письмо не приходит | `SMTP_*`, `EMAIL_FROM`, SPF/DKIM/DMARC, спам |
 | Оплата возвращает `BILLING_NOT_CONFIGURED` | ключи ЮKassa |
 | VIP не активируется | webhook URL, события, IP allowlist, логи `[billing:webhook]` |
 | Сборка падает на `new Date()` | не вызывать время в серверном/client-пререндере |

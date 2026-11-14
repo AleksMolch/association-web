@@ -5,7 +5,7 @@
 1. `POST /api/auth/sign-up/email` с name, email, password.
 2. Better Auth проверяет длину пароля (8–128), нормализует email и хеширует пароль.
 3. В development сессия создаётся сразу.
-4. В production `requireEmailVerification=true`: письмо уходит через Resend, сессия не создаётся до подтверждения.
+4. В production `requireEmailVerification=true`: письмо уходит через SMTP NetAngels, сессия не создаётся до подтверждения.
 5. Роль по умолчанию — `user`; поле `role` не принимается от клиента.
 
 ## Подтверждение email
@@ -14,7 +14,7 @@
 - После подтверждения Better Auth перенаправляет на callback URL.
 - `autoSignInAfterVerification=true`.
 - Страница `/verify-email` объясняет шаги и позволяет отправить письмо повторно.
-- В production без `RESEND_API_KEY` регистрация не завершится входом.
+- В production без `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` регистрация не завершится входом.
 
 ## Сброс пароля
 

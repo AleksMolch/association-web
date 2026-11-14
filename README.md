@@ -23,7 +23,7 @@
 
 - PostgreSQL и миграции (включая `0001`);
 - `BETTER_AUTH_SECRET`, `DATABASE_URL`, `MODERATION_PSEUDONYM_SECRET`;
-- Resend для писем;
+- SMTP NetAngels / Nodemailer для писем;
 - магазин ЮKassa и публичный webhook;
 - юридические тексты, 152-ФЗ и 54-ФЗ;
 - проверка тарифов и возвратов.

@@ -56,12 +56,12 @@
 - **Документация:** https://yookassa.ru/developers/api
 - **Правило:** прямая интеграция через `fetch`; сумма только на сервере.
 
-## Resend
+## Nodemailer + SMTP NetAngels
 
-- **Зачем:** транзакционные письма без собственного SMTP.
-- **Альтернативы:** Postmark, Unisender, собственный SMTP.
-- **Документация:** https://resend.com/docs
-- **Правило:** домен подтверждён, ключ только на сервере.
+- **Зачем:** транзакционные письма через `mail.netangels.ru` (SMTP 465/587).
+- **Альтернативы:** Resend, Postmark, Unisender, DashaMail.
+- **Документация:** https://nodemailer.com/
+- **Правило:** SMTP-пароль только на сервере; SPF/DKIM/DMARC настроены для домена.
 
 ## Recharts
 

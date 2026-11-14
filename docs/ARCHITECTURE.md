@@ -103,7 +103,7 @@ PostgreSQL
 
 - email + пароль, минимум 8 символов;
 - подтверждение email требуется только в production;
-- сброс пароля через Resend;
+- сброс пароля через SMTP NetAngels;
 - роль `admin` хранится в `user.role` и недоступна для ввода клиентом;
 - сессия 30 дней, cookie cache 5 минут;
 - `nextCookies()` подключает cookie к Next.js;
