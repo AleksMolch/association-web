@@ -75,11 +75,11 @@ export function PdConsentGate() {
           />
           <span>
             Я принимаю{" "}
-            <Link href="/terms" className="font-medium text-primary underline underline-offset-2">
+            <Link href="/terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
               Пользовательское соглашение
             </Link>{" "}
             и даю согласие на обработку персональных данных на условиях{" "}
-            <Link href="/privacy" className="font-medium text-primary underline underline-offset-2">
+            <Link href="/privacy" target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
               Политики
             </Link>
             . Версия {PD_CONSENT_VERSION}.

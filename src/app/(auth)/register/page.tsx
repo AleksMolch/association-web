@@ -181,11 +181,11 @@ export default function RegisterPage() {
           />
           <span>
             {PD_CONSENT_LABEL}{" "}
-            <Link href="/terms" className="font-medium text-primary underline underline-offset-2">
+            <Link href="/terms" target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
               Соглашение
             </Link>
             {" · "}
-            <Link href="/privacy" className="font-medium text-primary underline underline-offset-2">
+            <Link href="/privacy" target="_blank" rel="noreferrer" className="font-medium text-primary underline underline-offset-2">
               Политика ПДн
             </Link>
           </span>
