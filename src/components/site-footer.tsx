@@ -7,7 +7,9 @@ import Link from "next/link";
 import { brand } from "@/lib/brand";
 
 const legal = [
-  { href: "/privacy", label: "Политика ПД" },
+  { href: "/privacy", label: "Политика обработки ПДн" },
+  { href: "/consent-pd", label: "Согласие на обработку ПДн" },
+  { href: "/cookies", label: "Политика cookie" },
   { href: "/terms", label: "Пользовательское соглашение" },
   { href: "/offer", label: "Оферта" },
 ];

@@ -1,18 +1,13 @@
 /**
  * legal.ts — реквизиты оператора персональных данных.
  *
- * Значения задаются в окружении. До заполнения на страницах отображаются
- * явные заглушки, чтобы реквизиты нельзя было случайно опубликовать пустыми.
+ * Значения можно переопределить переменными окружения. По умолчанию указаны
+ * реквизиты из юридических документов сервиса.
  */
 
 export const legal = {
-  operatorName: process.env.LEGAL_OPERATOR_NAME || "[ФИО самозанятого]",
-  operatorInn: process.env.LEGAL_OPERATOR_INN || "[ИНН]",
+  operatorName:
+    process.env.LEGAL_OPERATOR_NAME || "Молчанов Александр Владимирович",
+  operatorInn: process.env.LEGAL_OPERATOR_INN || "660303236183",
   contactEmail: process.env.LEGAL_CONTACT_EMAIL || "support@mnemoslov.ru",
-  get configured(): boolean {
-    return (
-      !this.operatorName.startsWith("[") &&
-      !this.operatorInn.startsWith("[")
-    );
-  },
 } as const;

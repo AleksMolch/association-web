@@ -102,3 +102,111 @@ html[data-reduced-motion="true"] *::after {
   animation-iteration-count: 1 !important;
   transition-duration: 0.01ms !important;
 }
+
+/* Юридические документы (react-markdown). */
+.legal-prose {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.legal-prose h1 {
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+.legal-prose h2 {
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.legal-prose h3,
+.legal-prose h4 {
+  color: var(--color-ink);
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+.legal-prose p {
+  margin-bottom: 0.75rem;
+}
+.legal-prose ul,
+.legal-prose ol {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+}
+.legal-prose li {
+  margin-bottom: 0.35rem;
+}
+.legal-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.legal-prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: 1.25rem 0;
+}
+
+/* Юридические документы (react-markdown). */
+.legal-prose {
+  color: var(--color-muted);
+  font-size: 0.875rem;
+  line-height: 1.7;
+}
+.legal-prose h1 {
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  font-weight: 600;
+  line-height: 1.2;
+  margin-bottom: 1rem;
+}
+.legal-prose h2 {
+  color: var(--color-ink);
+  font-family: var(--font-serif);
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.legal-prose h3,
+.legal-prose h4 {
+  color: var(--color-ink);
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+.legal-prose p {
+  margin-bottom: 0.75rem;
+}
+.legal-prose ul,
+.legal-prose ol {
+  margin: 0.5rem 0 0.75rem 1.25rem;
+}
+.legal-prose li {
+  margin-bottom: 0.35rem;
+}
+.legal-prose strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.legal-prose a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.legal-prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-line);
+  margin: 1.25rem 0;
+}

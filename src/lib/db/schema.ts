@@ -273,6 +273,24 @@ export const subscriptions = pgTable(
   ],
 );
 
+export const cookieConsents = pgTable(
+  "cookie_consents",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    version: text("version").notNull(),
+    necessary: boolean("necessary").default(true).notNull(),
+    advertising: boolean("advertising").default(false).notNull(),
+    analytics: boolean("analytics").default(false).notNull(),
+    source: text("source").default("banner").notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [index("cookie_consents_user_idx").on(table.userId, table.decidedAt)],
+);
+
 export const auditLog = pgTable(
   "audit_log",
   {

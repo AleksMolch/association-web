@@ -3,9 +3,9 @@
 /**
  * yandex-autoplacement.tsx — Yandex Autoplacement.
  *
- * Скрипты загружаются только на информационных страницах и только после
- * согласия «Разрешить рекламу». На лендинге, в демо, тарифах, auth,
- * кабинете и тренажёре реклама не подключается.
+ * Скрипты загружаются только на информационных страницах, только после
+ * согласия «Принять все cookies» и только для пользователей без активного
+ * VIP. Пока статус подписки неизвестен, реклама не загружается.
  */
 
 import Script from "next/script";
@@ -15,18 +15,26 @@ import { useSyncExternalStore } from "react";
 import {
   getCookieConsentSnapshot,
   getServerCookieConsentSnapshot,
+  isCurrentConsent,
   subscribeCookieConsent,
 } from "@/lib/cookie-consent";
+import { useVipStatus } from "@/lib/use-vip-status";
 
 const AD_PAGES = new Set(["/method", "/science"]);
 const PAGE_ID = "20420659";
 
-/** Проверяет, разрешена ли реклама на странице при текущем согласии. */
+type ConsentLike = { version: string; categories: { advertising: boolean } };
+
+/** Проверяет, разрешена ли реклама на странице при текущем состоянии. */
 export function shouldLoadAds(
   pathname: string,
-  consent: "all" | "necessary" | null | undefined,
+  consent: ConsentLike | null | undefined,
+  vip: { vipActive: boolean; vipLoading: boolean },
 ): boolean {
-  return consent === "all" && AD_PAGES.has(pathname);
+  if (!AD_PAGES.has(pathname)) return false;
+  if (vip.vipActive || vip.vipLoading) return false;
+  if (!consent || !isCurrentConsent(consent)) return false;
+  return consent.categories.advertising === true;
 }
 
 export function YandexAutoplacement() {
@@ -36,8 +44,9 @@ export function YandexAutoplacement() {
     getCookieConsentSnapshot,
     getServerCookieConsentSnapshot,
   );
+  const vip = useVipStatus();
 
-  if (!shouldLoadAds(pathname, consent)) return null;
+  if (!shouldLoadAds(pathname, consent, vip)) return null;
 
   return (
     <>
