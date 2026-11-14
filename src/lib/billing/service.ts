@@ -114,7 +114,7 @@ export async function createSubscriptionPayment(input: {
   try {
     const remote = await createYooKassaPayment({
       amountMinor: plan.amountMinor,
-      description: `Association VIP — ${plan.title}`,
+      description: `Мнемослов VIP — ${plan.title}`,
       returnUrl: returnUrl.toString(),
       idempotenceKey,
       metadata: { paymentId, userId: input.userId, planId: plan.code },

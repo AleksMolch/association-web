@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { brand } from "@/lib/brand";
 import { AccountMenu } from "@/components/dashboard/account-menu";
 
 export const metadata: Metadata = {
@@ -29,7 +30,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-8">
           <Link href="/dashboard" className="font-serif text-xl font-semibold text-ink">
-            Association
+            {brand.name}
           </Link>
           <nav aria-label="Кабинет" className="order-3 flex w-full gap-1 overflow-x-auto md:order-2 md:w-auto">
             {links.map((link) => (

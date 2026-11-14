@@ -20,7 +20,7 @@ const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ??
 const isProduction = process.env.NODE_ENV === "production";
 
 export const auth = betterAuth({
-  appName: "Association",
+  appName: "Мнемослов",
   baseURL: appUrl,
   secret: process.env.BETTER_AUTH_SECRET ?? "development-only-change-this-secret",
   database: drizzleAdapter(db, { provider: "pg", schema }),
@@ -34,11 +34,11 @@ export const auth = betterAuth({
     sendResetPassword: async ({ user, url }) => {
       await sendEmail({
         to: user.email,
-        subject: "Сброс пароля Association",
+        subject: "Сброс пароля Мнемослов",
         text: [
           "Здравствуйте!",
           "",
-          "Вы запросили сброс пароля в Association. Ссылка действует один час:",
+          "Вы запросили сброс пароля в сервисе «Мнемослов». Ссылка действует один час:",
           url,
           "",
           "Если вы не запрашивали сброс, просто проигнорируйте письмо.",
@@ -52,11 +52,11 @@ export const auth = betterAuth({
     sendVerificationEmail: async ({ user, url }) => {
       await sendEmail({
         to: user.email,
-        subject: "Подтвердите email в Association",
+        subject: "Подтвердите email в Мнемослов",
         text: [
           "Здравствуйте!",
           "",
-          "Подтвердите адрес электронной почты, чтобы завершить регистрацию:",
+          "Подтвердите адрес электронной почты, чтобы завершить регистрацию в сервисе «Мнемослов»:",
           url,
           "",
           "Если вы не регистрировались, проигнорируйте письмо.",

@@ -1,5 +1,5 @@
 /**
- * layout.tsx — корневой layout Association Web.
+ * layout.tsx — корневой layout «Мнемослов».
  *
  * Подключает провайдеры, глобальные стили и SEO-метаданные. Шапка и подвал
  * добавляются только в группе публичных страниц (marketing).
@@ -8,23 +8,23 @@
 import type { Metadata, Viewport } from "next";
 
 import { Providers } from "@/components/providers";
+import { brand } from "@/lib/brand";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://association.example"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? `https://${brand.domain}`),
   title: {
-    default: "Association — английские слова через ассоциации",
-    template: "%s · Association",
+    default: `${brand.name} — английские слова через ассоциации`,
+    template: `%s · ${brand.name}`,
   },
-  description:
-    "Онлайн-тренажёр английских слов: русские созвучные ассоциации, книжные иллюстрации и интервальное повторение FSRS.",
+  description: brand.positioning,
+  applicationName: brand.appName,
   openGraph: {
     type: "website",
     locale: "ru_RU",
-    siteName: "Association",
-    title: "Association — английские слова через ассоциации",
-    description:
-      "Запоминайте английские слова через живые ассоциации и возвращайтесь к ним по FSRS.",
+    siteName: brand.name,
+    title: `${brand.name} — ${brand.explainer}`,
+    description: brand.positioning,
   },
   robots: { index: true, follow: true },
 };

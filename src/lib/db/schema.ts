@@ -1,5 +1,5 @@
 /**
- * schema.ts — схема PostgreSQL для Association Web.
+ * schema.ts — схема PostgreSQL для «Мнемослов».
  *
  * Таблицы Better Auth (user/session/account/verification) дополнены
  * прогрессом, настройками, платежами и аудитом. Контент словаря остаётся

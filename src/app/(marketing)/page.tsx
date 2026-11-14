@@ -1,5 +1,5 @@
 /**
- * page.tsx — публичный лендинг Association.
+ * page.tsx — публичный лендинг «Мнемослов».
  *
  * SEO-страница объясняет метод, показывает реальную ассоциацию, тарифы и
  * ведёт в демо без регистрации. Все иллюстрации — локальные ассеты проекта.
@@ -17,11 +17,11 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Separator } from "@/components/ui/separator";
 import { content, getWord, imageUrl, primaryMnemonic } from "@/content";
 import { plans, formatRub } from "@/lib/billing/plans";
+import { brand } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: "Association — английские слова через ассоциации",
-  description:
-    "Запоминайте английские слова через русские созвучные ассоциации и книжные иллюстрации. Демо без регистрации, бесплатный тренажёр, FSRS.",
+  title: `${brand.name} — английские слова через ассоциации`,
+  description: `${brand.positioning} Демо без регистрации.`,
   alternates: { canonical: "/" },
 };
 
@@ -62,7 +62,7 @@ const methods = [
   {
     icon: BookOpen,
     title: "Повторение",
-    text: "FSRS возвращает карточку в нужный момент, а вы выбираете Again, Hard, Good или Easy.",
+    text: "FSRS возвращает карточку в нужный момент, а вы выбираете «Снова», «Трудно», «Хорошо» или «Легко».",
   },
 ];
 
@@ -78,10 +78,9 @@ export default function HomePage() {
     "@graph": [
       {
         "@type": "WebSite",
-        name: "Association",
-        url: process.env.NEXT_PUBLIC_APP_URL ?? "https://association.example",
-        description:
-          "Тренажёр английских слов через русские созвучные ассоциации, книжные иллюстрации и FSRS.",
+        name: brand.name,
+        url: process.env.NEXT_PUBLIC_APP_URL ?? `https://${brand.domain}`,
+        description: brand.positioning,
       },
       {
         "@type": "FAQPage",
@@ -101,13 +100,17 @@ export default function HomePage() {
       <section className="border-b border-line">
         <div className="mx-auto grid w-full max-w-6xl gap-12 px-5 py-16 sm:px-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:py-24">
           <div className="space-y-7">
-            <Badge variant="primary">Метод ключевых слов + FSRS</Badge>
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge variant="primary">{brand.slogan}</Badge>
+              <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted">
+                {brand.explainer}
+              </span>
+            </div>
             <h1 className="font-serif text-4xl leading-[1.08] tracking-tight text-ink sm:text-5xl lg:text-6xl">
-              Английские слова, которые остаются в памяти
+              {brand.promo}
             </h1>
             <p className="max-w-xl text-lg leading-relaxed text-muted">
-              Русское созвучие, живая книжная иллюстрация и интервальное повторение.
-              Не зубрёжка, а понятная связка между звучанием и значением.
+              {brand.description}
             </p>
             <div className="flex flex-wrap gap-3">
               <Link href="/demo" className={buttonVariants({ size: "lg" })}>
@@ -327,7 +330,7 @@ export default function HomePage() {
           <h2 className="font-serif text-3xl font-semibold text-ink sm:text-4xl">Попробуйте на трёх словах</h2>
           <p className="max-w-xl text-base leading-relaxed text-muted">
             Без регистрации и почты. Если связка сработает — сохраните прогресс и продолжайте
-            в удобном темпе.
+            в удобном темпе. {brand.slogan}
           </p>
           <Link href="/demo" className={buttonVariants({ size: "lg" })}>
             Открыть демо <ArrowRight className="size-4" aria-hidden="true" />

@@ -18,7 +18,7 @@ import { formatRub, plans } from "@/lib/billing/plans";
 export const metadata: Metadata = {
   title: "Тарифы",
   description:
-    "Бесплатный веб-тренажёр и VIP-доступ Association: без рекламы, синхронизация с мобильным приложением, расширенная статистика и экспорт.",
+    "Бесплатный веб-тренажёр и VIP-доступ «Мнемослов»: без рекламы, синхронизация с мобильным приложением, расширенная статистика и экспорт.",
   alternates: { canonical: "/pricing" },
 };
 

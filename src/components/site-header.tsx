@@ -9,6 +9,7 @@
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
+import { brand } from "@/lib/brand";
 
 const links = [
   { href: "/method", label: "Метод" },
@@ -24,9 +25,12 @@ export function SiteHeader() {
         <Link
           href="/"
           className="font-serif text-xl font-semibold tracking-tight text-ink"
-          aria-label="Association — на главную"
+          aria-label={`${brand.name} — на главную`}
         >
-          Association
+          <span className="block">{brand.name}</span>
+          <span className="block text-[10px] font-normal uppercase tracking-[0.14em] text-muted">
+            {brand.slogan}
+          </span>
         </Link>
         <nav aria-label="Основная навигация" className="hidden items-center gap-1 md:flex">
           {links.map((link) => (

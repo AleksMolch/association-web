@@ -20,7 +20,7 @@ export default function TermsPage() {
       <h1 className="font-serif text-4xl font-semibold text-ink">Пользовательское соглашение</h1>
       <div className="mt-6 space-y-5 text-sm leading-relaxed text-muted">
         <p>
-          Association — локальный и веб-тренажёр для запоминания английских слов. Сервис
+          «Мнемослов» — локальный и веб-сервис для запоминания английских слов. Сервис
           предоставляется «как есть»; мы не гарантируем достижение конкретного уровня языка.
         </p>
         <p>

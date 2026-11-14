@@ -2,7 +2,7 @@
  * accordion.tsx — FAQ на нативном details/summary.
  *
  * Работает без JavaScript и сохраняет доступность клавиатуры; внешний вид
- * соответствует карточкам Association.
+ * соответствует карточкам «Мнемослов».
  */
 
 import * as React from "react";

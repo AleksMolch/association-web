@@ -4,6 +4,8 @@
 
 import Link from "next/link";
 
+import { brand } from "@/lib/brand";
+
 const legal = [
   { href: "/privacy", label: "Политика ПД" },
   { href: "/terms", label: "Пользовательское соглашение" },
@@ -15,12 +17,12 @@ export function SiteFooter() {
     <footer className="border-t border-line bg-paper-warm">
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-5 py-10 sm:px-8 md:grid-cols-[1.4fr_1fr_1fr]">
         <div className="space-y-2">
-          <p className="font-serif text-xl font-semibold text-ink">Association</p>
+          <p className="font-serif text-xl font-semibold text-ink">{brand.name}</p>
+          <p className="text-sm font-medium text-primary">{brand.slogan}</p>
           <p className="max-w-sm text-sm leading-relaxed text-muted">
-            Английские слова через русские созвучные ассоциации, книжные иллюстрации и
-            интервальное повторение. Не является медицинской или научной гарантией
-            результата.
+            {brand.explainer}
           </p>
+          <p className="text-xs font-semibold text-muted">{brand.promo}</p>
         </div>
         <nav aria-label="Продукт" className="space-y-2 text-sm">
           <p className="font-semibold text-ink">Продукт</p>
@@ -39,7 +41,7 @@ export function SiteFooter() {
         </nav>
       </div>
       <div className="border-t border-line px-5 py-4 text-center text-xs text-muted sm:px-8">
-        Association. Иллюстрации созданы для проекта.
+        {brand.name}. Иллюстрации созданы для проекта.
       </div>
     </footer>
   );

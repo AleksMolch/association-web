@@ -12,7 +12,7 @@ import { buttonVariants } from "@/components/ui/button";
 export const metadata: Metadata = {
   title: "Демо",
   description:
-    "Три демонстрационные карточки Association: выберите ассоциацию и посмотрите, как устроен тренажёр. Без регистрации.",
+    "Три демонстрационные карточки сервиса «Мнемослов»: выберите ассоциацию и посмотрите, как устроен тренажёр. Без регистрации.",
   alternates: { canonical: "/demo" },
 };
 
