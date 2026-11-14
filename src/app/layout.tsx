@@ -8,6 +8,7 @@
 import type { Metadata, Viewport } from "next";
 
 import { CookieNotice } from "@/components/cookie-notice";
+import { PdConsentGate } from "@/components/pd-consent-gate";
 import { Providers } from "@/components/providers";
 import { brand } from "@/lib/brand";
 import "./globals.css";
@@ -48,6 +49,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           К основному содержанию
         </a>
         <Providers>{children}</Providers>
+        <PdConsentGate />
         <CookieNotice />
       </body>
     </html>
