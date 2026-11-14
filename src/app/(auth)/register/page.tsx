@@ -19,6 +19,17 @@ function safeNextPath(): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function authErrorMessage(message: string | undefined): string {
+  if (!message) return "Не удалось создать аккаунт.";
+  if (message.includes("Invalid email")) return "Введите корректный email.";
+  if (message.includes("already exists") || message.includes("User already exists")) {
+    return "Аккаунт с таким email уже существует. Войдите или сбросьте пароль.";
+  }
+  return message;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
   const [name, setName] = useState("");
@@ -32,6 +43,16 @@ export default function RegisterPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    const cleanName = name.trim();
+    const cleanEmail = email.trim().toLowerCase();
+    if (cleanName.length < 2) {
+      setError("Введите имя (минимум 2 символа).");
+      return;
+    }
+    if (!cleanEmail || !EMAIL_PATTERN.test(cleanEmail)) {
+      setError("Введите корректный email, например you@example.com.");
+      return;
+    }
     if (password.length < 8) {
       setError("Пароль должен содержать минимум 8 символов.");
       return;
@@ -42,9 +63,14 @@ export default function RegisterPage() {
     }
     setPending(true);
     try {
-      const result = await authClient.signUp.email({ name, email, password, callbackURL: safeNextPath() });
+      const result = await authClient.signUp.email({
+        name: cleanName,
+        email: cleanEmail,
+        password,
+        callbackURL: safeNextPath(),
+      });
       if (result.error) {
-        setError(result.error.message ?? "Не удалось создать аккаунт.");
+        setError(authErrorMessage(result.error.message));
         return;
       }
       if (!result.data?.token) {
@@ -95,6 +121,7 @@ export default function RegisterPage() {
             minLength={2}
             value={name}
             onChange={(event) => setName(event.target.value)}
+            placeholder="Как к вам обращаться"
             aria-invalid={Boolean(error)}
           />
         </div>
@@ -105,9 +132,13 @@ export default function RegisterPage() {
             name="email"
             type="email"
             autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
             aria-invalid={Boolean(error)}
           />
         </div>

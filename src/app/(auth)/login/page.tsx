@@ -18,6 +18,8 @@ function safeNextPath(): string {
   return next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -28,9 +30,18 @@ export default function LoginPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !EMAIL_PATTERN.test(cleanEmail)) {
+      setError("Введите корректный email, например you@example.com.");
+      return;
+    }
+    if (!password) {
+      setError("Введите пароль.");
+      return;
+    }
     setPending(true);
     try {
-      const result = await authClient.signIn.email({ email, password, rememberMe: true });
+      const result = await authClient.signIn.email({ email: cleanEmail, password, rememberMe: true });
       if (result.error) {
         setError(result.error.message ?? "Не удалось войти. Проверьте email и пароль.");
         return;
@@ -58,9 +69,13 @@ export default function LoginPage() {
             name="email"
             type="email"
             autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="email"
             required
             value={email}
             onChange={(event) => setEmail(event.target.value)}
+            placeholder="you@example.com"
             aria-invalid={Boolean(error)}
           />
         </div>
