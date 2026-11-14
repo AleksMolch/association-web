@@ -5,6 +5,7 @@
  * тарифов, демо и юридическим документам.
  */
 
+import { YandexAutoplacement } from "@/components/ads/yandex-autoplacement";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 
@@ -14,6 +15,7 @@ export default function MarketingLayout({ children }: LayoutProps<"/">) {
       <SiteHeader />
       <main id="main" className="flex-1">{children}</main>
       <SiteFooter />
+      <YandexAutoplacement />
     </>
   );
 }
