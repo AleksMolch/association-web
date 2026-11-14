@@ -28,6 +28,8 @@ export const user = pgTable("user", {
   role: text("role").default("user").notNull(),
   pdConsentAt: text("pd_consent_at"),
   pdConsentVersion: text("pd_consent_version"),
+  termsAcceptedAt: text("terms_accepted_at"),
+  termsVersion: text("terms_version"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -285,6 +287,8 @@ export const cookieConsents = pgTable(
     advertising: boolean("advertising").default(false).notNull(),
     analytics: boolean("analytics").default(false).notNull(),
     source: text("source").default("banner").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
     decidedAt: timestamp("decided_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   },

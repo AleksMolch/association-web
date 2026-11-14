@@ -45,6 +45,10 @@ export async function POST(request: Request) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "INVALID_BODY" }, { status: 400 });
 
+  const forwardedFor = request.headers.get("x-forwarded-for") ?? "";
+  const ipAddress = forwardedFor.split(",")[0]?.trim() || request.headers.get("x-real-ip") || null;
+  const userAgent = request.headers.get("user-agent")?.slice(0, 512) ?? null;
+
   try {
     await db.insert(cookieConsents).values({
       id: crypto.randomUUID(),
@@ -54,6 +58,8 @@ export async function POST(request: Request) {
       advertising: parsed.data.advertising,
       analytics: parsed.data.analytics,
       source: parsed.data.source,
+      ipAddress,
+      userAgent,
       decidedAt: new Date(),
     });
     return NextResponse.json({ ok: true });

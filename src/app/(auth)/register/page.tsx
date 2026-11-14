@@ -14,7 +14,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { humanizeAuthError } from "@/lib/auth-errors";
-import { PD_CONSENT_LABEL, PD_CONSENT_VERSION } from "@/lib/pd-consent";
+import { PD_CONSENT_LABEL, PD_CONSENT_VERSION, TERMS_VERSION } from "@/lib/pd-consent";
 
 function safeNextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
@@ -68,6 +68,8 @@ export default function RegisterPage() {
         callbackURL: safeNextPath(),
         pdConsentAt: new Date().toISOString(),
         pdConsentVersion: PD_CONSENT_VERSION,
+        termsAcceptedAt: new Date().toISOString(),
+        termsVersion: TERMS_VERSION,
       } as Parameters<typeof authClient.signUp.email>[0]);
       if (result.error) {
         setError(humanizeAuthError(result.error.message, "Не удалось создать аккаунт. Попробуйте ещё раз."));

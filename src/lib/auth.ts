@@ -15,7 +15,7 @@ import { buildTrustedOrigins } from "@/lib/auth-origins";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendEmail } from "@/lib/email";
-import { PD_CONSENT_VERSION } from "@/lib/pd-consent";
+import { PD_CONSENT_VERSION, TERMS_VERSION } from "@/lib/pd-consent";
 
 const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const isProduction = process.env.NODE_ENV === "production";
@@ -83,6 +83,16 @@ export const auth = betterAuth({
         required: false,
         input: true,
       },
+      termsAcceptedAt: {
+        type: "string",
+        required: false,
+        input: true,
+      },
+      termsVersion: {
+        type: "string",
+        required: false,
+        input: true,
+      },
     },
   },
   databaseHooks: {
@@ -100,6 +110,8 @@ export const auth = betterAuth({
               ...user,
               pdConsentAt: new Date().toISOString(),
               pdConsentVersion: PD_CONSENT_VERSION,
+              termsAcceptedAt: new Date().toISOString(),
+              termsVersion: TERMS_VERSION,
             },
           };
         },

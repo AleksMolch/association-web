@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import { user } from "@/lib/db/schema";
-import { PD_CONSENT_VERSION } from "@/lib/pd-consent";
+import { PD_CONSENT_VERSION, TERMS_VERSION } from "@/lib/pd-consent";
 import { getServerSession } from "@/lib/server/session";
 
 export async function POST() {
@@ -22,6 +22,8 @@ export async function POST() {
       .set({
         pdConsentAt: new Date().toISOString(),
         pdConsentVersion: PD_CONSENT_VERSION,
+        termsAcceptedAt: new Date().toISOString(),
+        termsVersion: TERMS_VERSION,
         updatedAt: new Date(),
       })
       .where(eq(user.id, session.user.id));
