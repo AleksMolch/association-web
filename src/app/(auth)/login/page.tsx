@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { humanizeAuthError } from "@/lib/auth-errors";
 
 function safeNextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
@@ -43,7 +44,7 @@ export default function LoginPage() {
     try {
       const result = await authClient.signIn.email({ email: cleanEmail, password, rememberMe: true });
       if (result.error) {
-        setError(result.error.message ?? "Не удалось войти. Проверьте email и пароль.");
+        setError(humanizeAuthError(result.error.message, "Не удалось войти. Проверьте email и пароль."));
         return;
       }
       router.push(safeNextPath());

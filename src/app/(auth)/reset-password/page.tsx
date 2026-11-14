@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { humanizeAuthError } from "@/lib/auth-errors";
 
 function ResetForm() {
   const params = useSearchParams();
@@ -54,7 +55,7 @@ function ResetForm() {
     try {
       const result = await authClient.resetPassword({ newPassword: password, token: token ?? undefined });
       if (result.error) {
-        setError(result.error.message ?? "Ссылка устарела. Запросите новую.");
+        setError(humanizeAuthError(result.error.message, "Ссылка устарела. Запросите новую."));
         return;
       }
       router.push("/login");

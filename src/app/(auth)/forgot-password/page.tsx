@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { humanizeAuthError } from "@/lib/auth-errors";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -31,7 +32,7 @@ export default function ForgotPasswordPage() {
         redirectTo: `${window.location.origin}/reset-password`,
       });
       if (result.error) {
-        setError(result.error.message ?? "Не удалось отправить письмо.");
+        setError(humanizeAuthError(result.error.message, "Не удалось отправить письмо. Попробуйте ещё раз."));
         return;
       }
       setSent(true);

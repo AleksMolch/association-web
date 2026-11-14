@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
+import { humanizeAuthError } from "@/lib/auth-errors";
 
 function safeNextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
@@ -20,15 +21,6 @@ function safeNextPath(): string {
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function authErrorMessage(message: string | undefined): string {
-  if (!message) return "Не удалось создать аккаунт.";
-  if (message.includes("Invalid email")) return "Введите корректный email.";
-  if (message.includes("already exists") || message.includes("User already exists")) {
-    return "Аккаунт с таким email уже существует. Войдите или сбросьте пароль.";
-  }
-  return message;
-}
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -70,7 +62,7 @@ export default function RegisterPage() {
         callbackURL: safeNextPath(),
       });
       if (result.error) {
-        setError(authErrorMessage(result.error.message));
+        setError(humanizeAuthError(result.error.message, "Не удалось создать аккаунт. Попробуйте ещё раз."));
         return;
       }
       if (!result.data?.token) {

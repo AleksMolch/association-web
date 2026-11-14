@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { authClient } from "@/lib/auth-client";
+import { humanizeAuthError } from "@/lib/auth-errors";
 
 function VerifyContent() {
   const params = useSearchParams();
@@ -48,7 +49,7 @@ function VerifyContent() {
             try {
               const result = await authClient.sendVerificationEmail({ email, callbackURL: "/dashboard" });
               if (result.error) {
-                toast.error(result.error.message ?? "Не удалось отправить письмо");
+                toast.error(humanizeAuthError(result.error.message, "Не удалось отправить письмо. Попробуйте ещё раз."));
               } else {
                 toast.success("Письмо отправлено, если аккаунт существует");
               }
