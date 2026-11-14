@@ -7,6 +7,7 @@
 
 import type { Metadata, Viewport } from "next";
 
+import { CookieNotice } from "@/components/cookie-notice";
 import { Providers } from "@/components/providers";
 import { brand } from "@/lib/brand";
 import "./globals.css";
@@ -47,6 +48,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           К основному содержанию
         </a>
         <Providers>{children}</Providers>
+        <CookieNotice />
       </body>
     </html>
   );

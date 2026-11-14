@@ -7,6 +7,8 @@
 
 import type { Metadata } from "next";
 
+import { legal } from "@/lib/legal";
+
 export const metadata: Metadata = {
   title: "Оферта",
   robots: { index: false, follow: true },
@@ -22,7 +24,7 @@ export default function OfferPage() {
       <h1 className="font-serif text-4xl font-semibold text-ink">Оферта на VIP-доступ</h1>
       <div className="mt-6 space-y-5 text-sm leading-relaxed text-muted">
         <p>
-          Исполнитель [реквизиты] предоставляет доступ к VIP-функциям «Мнемослов» на срок,
+          Исполнитель {legal.operatorName}, ИНН {legal.operatorInn} предоставляет доступ к VIP-функциям «Мнемослов» на срок,
           выбранный пользователем: 1, 3 или 6 календарных месяцев.
         </p>
         <p>
@@ -37,7 +39,7 @@ export default function OfferPage() {
         </p>
         <p>
           Политика возврата: [описать полный/частичный возврат, использованный период,
-          сроки рассмотрения]. Обращения: [email поддержки].
+          сроки рассмотрения]. Обращения: {legal.contactEmail}.
         </p>
       </div>
     </article>

@@ -26,6 +26,7 @@ const KNOWN_ERRORS: { match: string; message: string }[] = [
   { match: "unauthorized", message: "Требуется вход в аккаунт." },
   { match: "invalid origin", message: "Запрос отклонён. Обновите страницу и попробуйте снова." },
   { match: "name is required", message: "Введите имя." },
+  { match: "pd_consent_required", message: "Для регистрации нужно согласие на обработку персональных данных." },
 ];
 
 /** Убирает технический префикс вида «[body.email] » из сообщения. */

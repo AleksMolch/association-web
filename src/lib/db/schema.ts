@@ -26,6 +26,8 @@ export const user = pgTable("user", {
   emailVerified: boolean("email_verified").default(false).notNull(),
   image: text("image"),
   role: text("role").default("user").notNull(),
+  pdConsentAt: text("pd_consent_at"),
+  pdConsentVersion: text("pd_consent_version"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

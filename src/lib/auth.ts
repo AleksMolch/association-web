@@ -7,7 +7,7 @@
  */
 
 import { expo } from "@better-auth/expo";
-import { betterAuth } from "better-auth";
+import { APIError, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 
@@ -15,6 +15,7 @@ import { buildTrustedOrigins } from "@/lib/auth-origins";
 import { db } from "@/lib/db";
 import * as schema from "@/lib/db/schema";
 import { sendEmail } from "@/lib/email";
+import { PD_CONSENT_VERSION } from "@/lib/pd-consent";
 
 const appUrl = process.env.BETTER_AUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 const isProduction = process.env.NODE_ENV === "production";
@@ -71,6 +72,37 @@ export const auth = betterAuth({
         required: false,
         defaultValue: "user",
         input: false,
+      },
+      pdConsentAt: {
+        type: "string",
+        required: false,
+        input: true,
+      },
+      pdConsentVersion: {
+        type: "string",
+        required: false,
+        input: true,
+      },
+    },
+  },
+  databaseHooks: {
+    user: {
+      create: {
+        before: async (user) => {
+          if (!user.pdConsentAt) {
+            throw APIError.from("BAD_REQUEST", {
+              code: "PD_CONSENT_REQUIRED",
+              message: "PD_CONSENT_REQUIRED",
+            });
+          }
+          return {
+            data: {
+              ...user,
+              pdConsentAt: new Date().toISOString(),
+              pdConsentVersion: PD_CONSENT_VERSION,
+            },
+          };
+        },
       },
     },
   },

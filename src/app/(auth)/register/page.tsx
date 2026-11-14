@@ -14,6 +14,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { authClient } from "@/lib/auth-client";
 import { humanizeAuthError } from "@/lib/auth-errors";
+import { PD_CONSENT_LABEL, PD_CONSENT_VERSION } from "@/lib/pd-consent";
 
 function safeNextPath(): string {
   const next = new URLSearchParams(window.location.search).get("next");
@@ -28,6 +29,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [pdConsent, setPdConsent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [verifyEmail, setVerifyEmail] = useState(false);
@@ -45,6 +47,10 @@ export default function RegisterPage() {
       setError("Введите корректный email, например you@example.com.");
       return;
     }
+    if (!pdConsent) {
+      setError("Для регистрации нужно согласие на обработку персональных данных.");
+      return;
+    }
     if (password.length < 8) {
       setError("Пароль должен содержать минимум 8 символов.");
       return;
@@ -60,7 +66,9 @@ export default function RegisterPage() {
         email: cleanEmail,
         password,
         callbackURL: safeNextPath(),
-      });
+        pdConsentAt: new Date().toISOString(),
+        pdConsentVersion: PD_CONSENT_VERSION,
+      } as Parameters<typeof authClient.signUp.email>[0]);
       if (result.error) {
         setError(humanizeAuthError(result.error.message, "Не удалось создать аккаунт. Попробуйте ещё раз."));
         return;
@@ -163,6 +171,25 @@ export default function RegisterPage() {
             aria-invalid={Boolean(error)}
           />
         </div>
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-line bg-paper-warm p-3 text-xs leading-relaxed text-muted">
+          <input
+            type="checkbox"
+            checked={pdConsent}
+            onChange={(event) => setPdConsent(event.target.checked)}
+            className="mt-0.5 size-4 accent-[var(--color-primary)]"
+            required
+          />
+          <span>
+            {PD_CONSENT_LABEL}{" "}
+            <Link href="/terms" className="font-medium text-primary underline underline-offset-2">
+              Соглашение
+            </Link>
+            {" · "}
+            <Link href="/privacy" className="font-medium text-primary underline underline-offset-2">
+              Политика ПДн
+            </Link>
+          </span>
+        </label>
         <FieldError>{error}</FieldError>
         <Button type="submit" className="w-full" disabled={pending}>
           {pending ? "Создаём…" : "Создать аккаунт"}
