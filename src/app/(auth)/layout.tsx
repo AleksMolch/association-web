@@ -8,6 +8,7 @@ import Link from "next/link";
 import { brand } from "@/lib/brand";
 
 export const metadata: Metadata = {
+  title: "Аккаунт",
   robots: { index: false, follow: false },
 };
 
