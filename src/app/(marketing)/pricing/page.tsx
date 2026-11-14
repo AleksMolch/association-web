@@ -18,7 +18,7 @@ import { formatRub, plans } from "@/lib/billing/plans";
 export const metadata: Metadata = {
   title: "Тарифы",
   description:
-    "Бесплатный веб-тренажёр и VIP-доступ «Мнемослов»: без рекламы, синхронизация с мобильным приложением, расширенная статистика и экспорт.",
+    "Бесплатный веб-тренажёр и VIP-доступ «Мнемослов»: без рекламы и синхронизация с мобильным приложением.",
   alternates: { canonical: "/pricing" },
 };
 
@@ -28,8 +28,6 @@ const features = [
   { label: "Базовая статистика", free: true, vip: true },
   { label: "Без рекламы", free: false, vip: true },
   { label: "Синхронизация с мобильным", free: false, vip: true },
-  { label: "Расширенная статистика", free: false, vip: true },
-  { label: "Экспорт данных", free: false, vip: true },
 ];
 
 export default function PricingPage() {
@@ -42,7 +40,7 @@ export default function PricingPage() {
         </h1>
         <p className="text-lg leading-relaxed text-muted">
           Регистрация и веб-прогресс бесплатны. VIP убирает рекламу и открывает
-          межплатформенную синхронизацию, расширенную статистику и экспорт.
+          межплатформенную синхронизацию и отключение рекламы.
         </p>
       </div>
 

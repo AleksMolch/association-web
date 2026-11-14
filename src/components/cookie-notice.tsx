@@ -51,7 +51,10 @@ export function CookieNotice() {
         </Link>
         .
       </p>
-      <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-end">
+        <Link href="/cookies#settings" className="px-1 text-xs font-medium text-muted underline underline-offset-2 hover:text-ink">
+          Настроить
+        </Link>
         <button
           type="button"
           onClick={() => choose(false)}

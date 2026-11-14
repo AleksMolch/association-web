@@ -130,7 +130,7 @@ export default function BillingPage() {
                 <CardDescription>{plan.description}</CardDescription>
               </CardHeader>
               <ul className="mb-4 space-y-1.5 text-sm text-muted">
-                {["Без рекламы", "Облачная синхронизация", "Расширенная статистика", "Экспорт данных"].map((item) => (
+                {["Без рекламы", "Облачная синхронизация"].map((item) => (
                   <li key={item} className="flex items-center gap-2">
                     <Check className="size-3.5 text-success" aria-hidden="true" /> {item}
                   </li>
@@ -156,6 +156,14 @@ export default function BillingPage() {
           );
         })}
       </div>
+
+      <p className="text-xs leading-relaxed text-muted">
+        Нажимая «Оплатить», вы принимаете условия{" "}
+        <Link href="/offer" className="font-medium text-primary underline underline-offset-2">Публичной оферты</Link>,{" "}
+        <Link href="/terms" className="font-medium text-primary underline underline-offset-2">Пользовательского соглашения</Link>,{" "}
+        <Link href="/privacy" className="font-medium text-primary underline underline-offset-2">Политики обработки ПДн</Link> и{" "}
+        <Link href="/cookies" className="font-medium text-primary underline underline-offset-2">Политики cookie</Link>.
+      </p>
 
       {notConfigured ? (
         <Card className="border-coral/30">
