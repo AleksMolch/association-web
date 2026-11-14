@@ -20,7 +20,7 @@ import { plans, formatRub } from "@/lib/billing/plans";
 import { brand } from "@/lib/brand";
 
 export const metadata: Metadata = {
-  title: `${brand.name} — английские слова через ассоциации`,
+  title: { absolute: `${brand.name} — английские слова через ассоциации` },
   description: `${brand.positioning} Демо без регистрации.`,
   alternates: { canonical: "/" },
 };
