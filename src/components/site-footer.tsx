@@ -15,14 +15,14 @@ const product = [
 
 const legal = [
   { href: "/privacy", label: "Политика обработки персональных данных" },
+  { href: "/consent-pd", label: "Согласие на обработку персональных данных" },
+  { href: "/cookies", label: "Политика cookie" },
+  { href: "/terms", label: "Пользовательское соглашение" },
+  { href: "/offer", label: "Оферта" },
   {
     href: "/privacy-protection",
     label: "Политика в отношении обработки и защиты персональных данных",
   },
-  { href: "/consent-pd", label: "Согласие на обработку ПДн" },
-  { href: "/cookies", label: "Политика cookie" },
-  { href: "/terms", label: "Пользовательское соглашение" },
-  { href: "/offer", label: "Оферта" },
 ];
 
 function FooterHeading({ children }: { children: React.ReactNode }) {
